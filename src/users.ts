@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { type Env } from ".";
+import { hash } from "bcryptjs";
+import { signedIn } from "./auth";
 
 export type User = {
     id: number;
@@ -14,26 +16,28 @@ export type User = {
 
 const app = new Hono<{ Bindings: Env }>();
 
+app.use("*", signedIn);
+
 app.get("/", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM users");
+    const stmt = c.env.d1CMS.prepare("SELECT id, name, email, roles, created_at, updated_at FROM users");
 
     const result = await stmt.all<User>();
 
     if (!result.success) {
         return c.text("Error: " + result.error, 500);
     }
+
     return c.json({ users: result.results })
 });
 
 app.post("/", async c => {
     const body = await c.req.json<User>();
 
-    console.log(body)
-
     const stmt = c.env.d1CMS.prepare("INSERT INTO users (name, email, password, roles, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)");
     try {
         const now = new Date().toISOString();
-        const result = await stmt.bind(body.name, body.email, body.password, body.roles, now, now).run();
+        const hashedPassword = await hash(body.password, 10);
+        const result = await stmt.bind(body.name, body.email, hashedPassword, body.roles, now, now).run();
 
         if (!result.success) {
             return c.text("Error: " + result.error, 500);
@@ -47,7 +51,7 @@ app.post("/", async c => {
 });
 
 app.get("/:id", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM users WHERE id = ?");
+    const stmt = c.env.d1CMS.prepare("SELECT id, name, email, roles, created_at, updated_at FROM users WHERE id = ?");
     const user = await stmt.bind(c.req.param("id")).first<User>();
 
     if (!user) {

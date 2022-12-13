@@ -9,6 +9,8 @@
  */
 
 import { Hono } from "hono";
+import auth from "./auth";
+import media from "./media";
 import users from "./users";
 
 export interface Env {
@@ -16,7 +18,7 @@ export interface Env {
 	kvCMS: KVNamespace;
 	//
 	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
+	// sessions: DurableObjectNamespace;
 	//
 	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
 	r2CMS: R2Bucket;
@@ -26,7 +28,11 @@ export interface Env {
 
 const app = new Hono<{ Bindings: Env }>();
 
+app.route("/auth", auth);
+
 app.route("/users", users);
+
+app.route("/media", media);
 
 app.get("/", async c => {
 	return c.text("Hello World!");
