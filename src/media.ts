@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { type Env } from ".";
 import { nanoid } from "nanoid";
 import { signedIn } from "./auth";
+import { type User } from "./users";
 
 export type Media = {
     id: number;
@@ -32,7 +33,7 @@ app.post("/", async c => {
     const body = await c.req.formData();
 
     const stmt = c.env.d1CMS.prepare(
-        "INSERT INTO media (name, alt_text, content_type, size, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO media (name, alt_text, content_type, size, path, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     );
     try {
         const now = new Date().toISOString();
@@ -40,17 +41,18 @@ app.post("/", async c => {
         // Upload file to r2CMS
         // @ts-ignore
         const file = body.get("file") as File;
-        const filename = `${nanoid()}.${file.name}`;
+        const filename = `${nanoid()}.${file.name.replace(/\s/g, "")}`;
         const r2File = await c.env.r2CMS.put(filename, file)
 
         // Insert media into d1CMS
         const result = await stmt
             .bind(
-                body.get("name") as string,
-                body.get("alt_text") as string,
+                file.name,
+                file.name,
                 file.type,
                 r2File.size,
-                body.get("path") as string,
+                r2File.key,
+                c.get<User>("user").id,
                 now,
                 now
             )
