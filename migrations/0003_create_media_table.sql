@@ -1,0 +1,15 @@
+-- Migration number: 0003 	 2022-12-17T14:03:48.363Z
+
+-- SQLite
+
+CREATE TABLE media (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255) NOT NULL,
+  alt_text VARCHAR(255) NOT NULL,
+  content_type VARCHAR(255) NOT NULL,
+  size INTEGER NOT NULL,
+  path VARCHAR(255) NOT NULL,
+  user_id INTEGER NOT NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL
+);
