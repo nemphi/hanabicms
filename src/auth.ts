@@ -16,7 +16,6 @@ type Session = {
 }
 
 export const signedIn = async (c: Context<string, { Bindings: Env }>, next: Next) => {
-    console.log("inside");
     const token = c.req.header("Authorization")?.replace("Bearer ", "");
     if (!token) {
         console.error("no token");
