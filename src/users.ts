@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { type Env } from ".";
+import { C } from ".";
 import { hash } from "bcryptjs";
 import { signedIn } from "./auth";
 
@@ -14,7 +14,7 @@ export type User = {
 }
 
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<C>();
 
 app.use("*", signedIn);
 

@@ -1,10 +1,10 @@
 import { type Context, Hono, type Next } from "hono";
 import { nanoid } from "nanoid";
 import { compare } from "bcryptjs";
-import { type Env } from ".";
+import { C } from ".";
 import { type User } from "./users";
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<C>();
 
 type Session = {
     id: number;
@@ -15,7 +15,7 @@ type Session = {
     updated_at: string;
 }
 
-export const signedIn = async (c: Context<string, { Bindings: Env }>, next: Next) => {
+export const signedIn = async (c: Context<C>, next: Next) => {
     const token = c.req.header("Authorization")?.replace("Bearer ", "");
     if (!token) {
         console.error("no token");
@@ -34,13 +34,13 @@ export const signedIn = async (c: Context<string, { Bindings: Env }>, next: Next
         return c.text("Unauthorized", 401);
     }
 
-    c.set("session", session);
+    // c.set("session", session);
     c.set("user", user);
 
     await next();
 }
 
-export const isAdmin = async (c: Context<string, { Bindings: Env }>, next: Next) => {
+export const isAdmin = async (c: Context<C>, next: Next) => {
     const token = c.req.header("Authorization")?.replace("Bearer ", "");
     if (!token) {
         return c.text("Unauthorized", 401);
@@ -63,7 +63,7 @@ export const isAdmin = async (c: Context<string, { Bindings: Env }>, next: Next)
         return c.text("Unauthorized", 401);
     }
 
-    c.set("session", session);
+    // c.set("session", session);
     c.set("user", user);
 
     await next();

@@ -11,9 +11,11 @@
 import { Hono } from "hono";
 import auth from "./auth";
 import media from "./media";
-import users from "./users";
+import users, { User } from "./users";
 
-export interface Env {
+
+
+type Env = {
 	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
 	kvCMS: KVNamespace;
 	//
@@ -26,7 +28,17 @@ export interface Env {
 	d1CMS: D1Database;
 }
 
-const app = new Hono<{ Bindings: Env }>();
+type Variables = {
+	// session: Session;
+	user: User;
+}
+
+export type C = {
+	Bindings: Env;
+	Variables: Variables;
+}
+
+const app = new Hono<C>();
 
 app.route("/auth", auth);
 

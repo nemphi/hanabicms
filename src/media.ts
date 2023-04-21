@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { type Env } from ".";
+import { C } from ".";
 import { nanoid } from "nanoid";
 import { signedIn } from "./auth";
 import { type User } from "./users";
@@ -15,7 +15,7 @@ export type Media = {
     updated_at: string;
 };
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<C>();
 
 app.use("*", signedIn);
 
@@ -52,7 +52,7 @@ app.post("/", async c => {
                 file.type,
                 r2File.size,
                 r2File.key,
-                c.get<User>("user").id,
+                c.get("user").id,
                 now,
                 now
             )
