@@ -1,6 +1,6 @@
 name = "cms"
-main = "src/index.ts"
-compatibility_date = "2022-12-10"
+main = "src/api/index.ts"
+compatibility_date = "2023-05-25"
 
 [[kv_namespaces]]
 binding = "kvCMS"

@@ -3,11 +3,12 @@
 -- SQLite
 
 CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name VARCHAR(255) NOT NULL,
-  email VARCHAR(255) NOT NULL,
-  password VARCHAR(255) NOT NULL,
-  roles VARCHAR(255) NOT NULL DEFAULT 'user', -- comma separated list of roles
-  created_at DATETIME NOT NULL,
-  updated_at DATETIME NOT NULL
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  salt TEXT NOT NULL, -- sha512 salt generated from a nanoid
+  password TEXT NOT NULL,
+  roles TEXT NOT NULL DEFAULT 'user', -- comma separated list of roles
+  created_at DATETIME NOT NULL CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL CURRENT_TIMESTAMP
 );
