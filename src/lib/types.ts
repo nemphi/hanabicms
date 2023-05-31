@@ -1,13 +1,9 @@
-
-
-export type ApiResponse<T = {}> = ApiSimpleResponse | ApiRecordResponse<T> | ApiRecordsResponse<T>;
-
 export type ApiError = {
     error?: string;
 }
 
-export type ApiSimpleResponse = {
-    data?: any;
+export type ApiSimpleResponse<T> = {
+    data?: T;
     message?: string;
 }
 

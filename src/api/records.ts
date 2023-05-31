@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { C } from ".";
 import { nanoid } from "nanoid";
-import { ApiError, ApiResponse } from "../lib/types";
+import type { ApiError, ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "../lib/types";
 
 export type Record = {
     id: string;
@@ -28,19 +28,9 @@ app.get("/:slug", async c => {
     }
 
     if (!result.results) {
-        return c.json<ApiResponse>({
+        return c.json<ApiRecordsResponse<Record>>({
             records: []
         });
-    }
-
-    const collections = c.get("collections")
-
-    const collection = collections.find(col => col.slug === c.req.param("slug"));
-
-    if (!collection) {
-        return c.json<ApiError>({
-            error: "Collection not found"
-        }, 404);
     }
 
     const records = result.results.map(r => ({
@@ -50,7 +40,7 @@ app.get("/:slug", async c => {
         updatedAt: r.updated_at
     }));
 
-    return c.json<ApiResponse>({ records });
+    return c.json<ApiRecordsResponse<any>>({ records });
 });
 
 app.post("/:slug", async c => {
@@ -66,7 +56,7 @@ app.post("/:slug", async c => {
             }, 500);
         }
 
-        return c.json<ApiResponse>({ message: "OK" });
+        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {
         console.log(error);
         return c.json<ApiError>({
@@ -84,7 +74,7 @@ app.get("/:slug/:id", async c => {
             error: "Record not found"
         }, 404);
     }
-    return c.json<ApiResponse>({
+    return c.json<ApiRecordResponse<any>>({
         id: record.id,
         data: record.fields,
         createdAt: record.created_at,
@@ -112,7 +102,7 @@ app.put("/:slug/:id", async c => {
             }, 500);
         }
 
-        return c.json<ApiResponse>({ message: "OK" });
+        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {
         console.error(error);
         return c.json<ApiError>({
@@ -132,7 +122,7 @@ app.delete("/:slug/:id", async c => {
             }, 500);
         }
 
-        return c.json<ApiResponse>({ message: "OK" });
+        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {
         console.error(error);
         return c.json<ApiError>({

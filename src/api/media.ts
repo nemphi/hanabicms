@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { C } from ".";
 import { nanoid } from "nanoid";
 import { signedIn } from "./auth";
-import { ApiError, ApiResponse } from "../lib/types";
+import { ApiError, ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "../lib/types";
 
 export type Media = {
     id: string;
@@ -31,7 +31,7 @@ app.get("/", async c => {
     }
 
     if (!result.results) {
-        return c.json<ApiResponse>({
+        return c.json<ApiRecordsResponse<Media>>({
             records: []
         });
     }
@@ -50,7 +50,7 @@ app.get("/", async c => {
         updatedAt: r.updated_at
     }));
 
-    return c.json<ApiResponse>({ records });
+    return c.json<ApiRecordsResponse<any>>({ records });
 });
 
 app.post("/", async c => {
@@ -88,7 +88,7 @@ app.post("/", async c => {
             }, 500);
         }
 
-        return c.json<ApiResponse>({ message: "OK" });
+        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {
         console.error(error);
         return c.json<ApiError>({
@@ -107,7 +107,7 @@ app.get("/:id", async c => {
         }, 404);
     }
 
-    return c.json<ApiResponse>({
+    return c.json<ApiRecordResponse<any>>({
         id: media.id,
         data: {
             name: media.name,
@@ -167,7 +167,7 @@ app.put("/:id", async c => {
             }, 500);
         }
 
-        return c.json<ApiResponse>({ message: "OK" });
+        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {
         console.error(error);
         return c.json<ApiError>({
@@ -187,7 +187,7 @@ app.delete("/:id", async c => {
             }, 500);
         }
 
-        return c.json<ApiResponse>({ message: "OK" });
+        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {
         console.error(error);
         return c.json<ApiError>({

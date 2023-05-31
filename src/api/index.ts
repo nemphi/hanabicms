@@ -4,7 +4,6 @@ import auth from "./auth";
 import media from "./media";
 import users, { User } from "./users";
 import records from "./records";
-import { type CollectionConfig } from "../lib/collections";
 
 
 
@@ -25,7 +24,7 @@ type Env = {
 type Variables = {
 	// session: Session;
 	user: User;
-	collections: CollectionConfig[];
+	// collections: T;
 }
 
 export type C = {

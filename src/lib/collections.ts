@@ -1,8 +1,10 @@
-export type CollectionConfig = {
-    slug: string;
-    name: string;
-    fields: CollectionConfigFieldTypes[];
+export type CollectionFields = { [key: string]: ConfigFieldTypes };
+
+export type CollectionConfig<T extends CollectionFields> = {
+    label: CollectionConfigFieldLabel;
+    fields: T;
     auth?: boolean;
+    external?: boolean;
     access?: {
         create?: string[];
         read?: string[];
@@ -10,79 +12,86 @@ export type CollectionConfig = {
         delete?: string[];
     };
     hooks?: {
-        beforeCreate?: (data: any) => any;
-        afterCreate?: (data: any) => any;
-        beforeUpdate?: (old: any, updated: any) => any;
-        afterUpdate?: (old: any, updated: any) => any;
-        beforeDelete?: (data: any) => any;
-        afterDelete?: (data: any) => any;
+        beforeCreate?: (data: FieldValues<T>) => Promise<FieldValues<T>>;
+        afterCreate?: (data: FieldValues<T>) => Promise<void>;
+        beforeUpdate?: (old: FieldValues<T>, updated: FieldValues<T>) => Promise<FieldValues<T>>;
+        afterUpdate?: (old: FieldValues<T>, updated: FieldValues<T>) => Promise<void>;
+        beforeDelete?: (data: FieldValues<T>) => Promise<void>;
+        afterDelete?: (data: FieldValues<T>) => Promise<void>;
     }
 }
 
-export type CollectionValues<T extends CollectionConfig> = { [key in T["fields"][number]["name"]]: CollectionFieldValue<T["fields"][number]> }
+export function collection<T extends CollectionFields>(config: CollectionConfig<T>): CollectionConfig<T> {
+    return config;
+}
 
-export type CollectionFieldValue<T extends CollectionConfigFieldTypes> = T["default"]
+// export type FieldValues<T extends CollectionFields> = {
+//     [K in keyof T]: T[K]["default"];
+// }
 
-export type CollectionConfigFieldTypes = CollectionConfigFieldText |
-    CollectionConfigFieldNumber |
-    CollectionConfigFieldDate |
-    CollectionConfigFieldDateTime |
-    CollectionConfigFieldList |
-    CollectionConfigFieldUpload;
+export type FieldValues<T extends CollectionFields, K extends keyof T = keyof T> =
+    {
+        [P in K as T[P] extends { required: true } ? never : P]?: T[P]["default"] | null;
+    } & {
+        [P in K as T[P] extends { required: false } ? never : P]: T[P]["default"];
+    };
+
+
+export type ConfigFieldTypes = ConfigFieldText |
+    ConfigFieldNumber |
+    ConfigFieldDate |
+    ConfigFieldDateTime |
+    ConfigFieldList |
+    ConfigFieldUpload;
+
 
 export type CollectionConfigFieldLabel = string | {
     singular: string;
     plural: string;
 } | {
-    singular: { [key: string]: string };
-    plural: { [key: string]: string };
+    singular: Record<string, string>;
+    plural: Record<string, string>;
 };
 
-export type CollectionConfigFieldText = {
-    name: string;
+export type ConfigFieldText = {
     label: CollectionConfigFieldLabel;
     type: 'text';
-    required?: boolean;
-    default?: string;
-}
+    required: boolean;
+    default: string;
+};
 
-export type CollectionConfigFieldNumber = {
-    name: string;
+export type ConfigFieldNumber = {
     label: CollectionConfigFieldLabel;
     type: 'number';
-    required?: boolean;
-    default?: number;
+    required: boolean;
+    default: number;
 }
 
-export type CollectionConfigFieldDate = {
-    name: string;
+export type ConfigFieldDate = {
     label: CollectionConfigFieldLabel;
     type: 'date';
-    required?: boolean;
-    default?: Date;
+    required: boolean;
+    default: Date;
 };
 
-export type CollectionConfigFieldDateTime = {
-    name: string;
+export type ConfigFieldDateTime = {
     label: CollectionConfigFieldLabel;
     type: 'datetime';
-    required?: boolean;
-    default?: Date;
+    required: boolean;
+    default: Date;
 };
 
-export type CollectionConfigFieldList = {
-    name: string;
+export type ConfigFieldList = {
     label: CollectionConfigFieldLabel;
     type: 'list';
-    required?: boolean;
-    fields: CollectionConfigFieldTypes[];
-    default?: CollectionConfigFieldTypes[];
+    required: boolean;
+    fields: ConfigFieldTypes[];
+    default: ConfigFieldTypes[];
 };
 
-export type CollectionConfigFieldUpload = {
-    name: string;
+export type ConfigFieldUpload = {
     label: CollectionConfigFieldLabel;
     type: 'upload';
-    required?: boolean;
-    default?: string;
+    required: boolean;
+    default: string;
 };

@@ -1,20 +1,13 @@
-import { CollectionConfig, CollectionValues } from "./collections";
-import { ApiResponse } from "./types";
+import { CollectionConfig, CollectionFields, ConfigFieldTypes, FieldValues } from "./collections";
+import type { ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "./types";
 
 
-export class Client {
+export class Client<T extends { [K in keyof T]: T[K] extends { fields: CollectionFields } ? (T[K] & { fields: CollectionFields }) : never }> {
 
-    constructor(private url: string, private token: string, private collections: CollectionConfig[]) { }
+    constructor(private url: string, private token: string, private collections: T) { }
 
-    collection(name: string) {
-
-        const collection = this.collections.find(c => c.name === name);
-
-        if (!collection) {
-            throw new Error(`Collection ${name} not found`);
-        }
-
-        return new Collection<CollectionValues<typeof collection>>(this.url, name, this.token);
+    collection<K extends keyof T>(name: K) {
+        return new Collection<FieldValues<Extract<T[K], { fields: CollectionFields }>["fields"]>>(this.url, name.toString(), this.token);
     }
 }
 
@@ -22,27 +15,27 @@ export class Collection<T> {
 
     constructor(private url: string, private name: string, private token: string) { }
 
-    async get(id: string): Promise<ApiResponse<T>> {
+    async get(id: string): Promise<ApiRecordResponse<T>> {
         const req = new Request(`${this.url}/data/${this.name}/${id}`, {
             headers: {
                 Authorization: `Bearer ${this.token}`,
             },
         });
         const res = await fetch(req);
-        return await res.json();
+        return res.json();
     }
 
-    async list(): Promise<ApiResponse<T>> {
+    async list(): Promise<ApiRecordsResponse<T>> {
         const req = new Request(`${this.url}/data/${this.name}`, {
             headers: {
                 Authorization: `Bearer ${this.token}`,
             },
         });
         const res = await fetch(req);
-        return await res.json();
+        return res.json();
     }
 
-    async create(data: T) {
+    async create(data: T): Promise<ApiSimpleResponse<T>> {
         const req = new Request(`${this.url}/data/${this.name}`, {
             method: "POST",
             body: JSON.stringify(data),
@@ -50,10 +43,11 @@ export class Collection<T> {
                 Authorization: `Bearer ${this.token}`,
             },
         });
-        return await fetch(req);
+        const res = await fetch(req)
+        return res.json();
     }
 
-    async update(id: string, data: T) {
+    async update(id: string, data: T): Promise<ApiSimpleResponse<T>> {
         const req = new Request(`${this.url}/data/${this.name}/${id}`, {
             method: "PUT",
             body: JSON.stringify(data),
@@ -61,16 +55,18 @@ export class Collection<T> {
                 Authorization: `Bearer ${this.token}`,
             },
         });
-        return await fetch(req);
+        const res = await fetch(req)
+        return res.json();
     }
 
-    async delete(id: string) {
+    async delete(id: string): Promise<ApiSimpleResponse<T>> {
         const req = new Request(`${this.url}/data/${this.name}/${id}`, {
             method: "DELETE",
             headers: {
                 Authorization: `Bearer ${this.token}`,
             },
         });
-        return await fetch(req);
+        const res = await fetch(req)
+        return res.json();
     }
 }

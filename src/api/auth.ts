@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { compare } from "bcryptjs";
 import { C } from ".";
 import { type User } from "./users";
-import { ApiError, ApiResponse } from "../lib/types";
+import { ApiError, ApiSimpleResponse } from "../lib/types";
 
 const app = new Hono<C>();
 
@@ -98,7 +98,7 @@ app.post("/signin", async c => {
         return c.json<ApiError>({ error: "Error creating session" }, 500);
     }
 
-    return c.json<ApiResponse>({ data: { token } });
+    return c.json<ApiSimpleResponse<any>>({ data: { token } });
 });
 
 app.post("/signout", async c => {
@@ -116,7 +116,7 @@ app.post("/signout", async c => {
         return c.json<ApiError>({ error: "Error deleting session" }, 500);
     }
 
-    return c.json<ApiResponse>({ message: "Signed out" });
+    return c.json<ApiSimpleResponse<any>>({ message: "Signed out" });
 });
 
 export default app;
