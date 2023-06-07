@@ -1,6 +1,6 @@
 {
   "name": "@nemphi/cms",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "main": "src/index.ts",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20230518.0",
