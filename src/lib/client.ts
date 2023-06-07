@@ -1,4 +1,4 @@
-import { CollectionConfig, CollectionFields, ConfigFieldTypes, FieldValues } from "./collections";
+import type { CollectionFields, FieldValues } from "./collections";
 import type { ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "./types";
 
 

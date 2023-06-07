@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import { C } from ".";
-import { hash } from "bcryptjs";
-import { signedIn } from "./auth";
-import type { ApiError, ApiResponse } from "../lib/types";
 import { nanoid } from "nanoid";
+import { hash } from "bcryptjs";
+import type { C } from ".";
+import { signedIn } from "./auth";
+import type { ApiError, ApiSimpleResponse, ApiRecordsResponse, ApiRecordResponse } from "../lib/types";
 
 export type User = {
     id: string;
@@ -45,7 +45,7 @@ app.get("/", async c => {
         updatedAt: r.updated_at
     }));
 
-    return c.json<ApiResponse<User>>({ records })
+    return c.json<ApiRecordsResponse<User>>({ records })
 });
 
 app.post("/", async c => {
@@ -71,7 +71,7 @@ app.post("/", async c => {
             }, 500);
         }
 
-        return c.json<ApiResponse>({ message: "OK" }, 201);
+        return c.json<ApiSimpleResponse<any>>({ message: "OK" }, 201);
     } catch (error: unknown) {
         console.log(error);
         return c.json<ApiError>({
@@ -89,7 +89,7 @@ app.get("/:id", async c => {
             error: "User not found"
         }, 404);
     }
-    return c.json<ApiResponse<User>>({
+    return c.json<ApiRecordResponse<User>>({
         id: user.id,
         data: user,
         createdAt: user.created_at,
@@ -108,7 +108,7 @@ app.put("/:id", async c => {
             error: result.error
         }, 500);
     }
-    return c.json<ApiResponse>({ message: "OK" });
+    return c.json<ApiSimpleResponse<any>>({ message: "OK" });
 });
 
 app.delete("/:id", async c => {
@@ -121,7 +121,7 @@ app.delete("/:id", async c => {
         }, 500);
     }
 
-    return c.json<ApiResponse>({ message: "OK" });
+    return c.json<ApiSimpleResponse<any>>({ message: "OK" });
 });
 
 

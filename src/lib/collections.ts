@@ -1,29 +1,37 @@
+import { ApiRecordResponse } from "./types";
+
 export type CollectionFields = { [key: string]: ConfigFieldTypes };
+
+export type CollectionAccess = {
+    create?: string[];
+    read?: string[];
+    update?: string[];
+    delete?: string[];
+}
 
 export type CollectionConfig<T extends CollectionFields> = {
     label: CollectionConfigFieldLabel;
     fields: T;
-    auth?: boolean;
-    external?: boolean;
-    access?: {
-        create?: string[];
-        read?: string[];
-        update?: string[];
-        delete?: string[];
-    };
+    // auth?: boolean;
+    // external?: boolean;
+    access?: CollectionAccess;
     hooks?: {
         beforeCreate?: (data: FieldValues<T>) => Promise<FieldValues<T>>;
-        afterCreate?: (data: FieldValues<T>) => Promise<void>;
-        beforeUpdate?: (old: FieldValues<T>, updated: FieldValues<T>) => Promise<FieldValues<T>>;
-        afterUpdate?: (old: FieldValues<T>, updated: FieldValues<T>) => Promise<void>;
-        beforeDelete?: (data: FieldValues<T>) => Promise<void>;
-        afterDelete?: (data: FieldValues<T>) => Promise<void>;
+        afterCreate?: (data: CollectionRecord<T>) => Promise<void>;
+        // beforeRead?: () => Promise<void>;
+        // afterRead?: (data: FieldValues<T>) => Promise<FieldValues<T>>;
+        beforeUpdate?: (old: CollectionRecord<T>, updated: FieldValues<T>) => Promise<FieldValues<T>>;
+        afterUpdate?: (old: CollectionRecord<T>, updated: CollectionRecord<T>) => Promise<void>;
+        beforeDelete?: (data: CollectionRecord<T>) => Promise<void>;
+        afterDelete?: (data: CollectionRecord<T>) => Promise<void>;
     }
 }
 
 export function collection<T extends CollectionFields>(config: CollectionConfig<T>): CollectionConfig<T> {
     return config;
 }
+
+type CollectionRecord<T extends CollectionFields> = ApiRecordResponse<FieldValues<T>>
 
 // export type FieldValues<T extends CollectionFields> = {
 //     [K in keyof T]: T[K]["default"];

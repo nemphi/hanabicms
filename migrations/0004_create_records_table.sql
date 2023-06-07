@@ -7,7 +7,8 @@ CREATE TABLE records (
     slug TEXT NOT NULL,
     fields TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME
 );
 
 CREATE INDEX records_slug_index ON records (slug);

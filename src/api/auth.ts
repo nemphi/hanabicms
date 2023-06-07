@@ -1,13 +1,13 @@
 import { type Context, Hono, type Next } from "hono";
 import { nanoid } from "nanoid";
 import { compare } from "bcryptjs";
-import { C } from ".";
-import { type User } from "./users";
-import { ApiError, ApiSimpleResponse } from "../lib/types";
+import type { C } from ".";
+import type { User } from "./users";
+import type { ApiError, ApiSimpleResponse } from "../lib/types";
 
 const app = new Hono<C>();
 
-type Session = {
+export type Session = {
     id: string;
     user_id: string;
     token: string;

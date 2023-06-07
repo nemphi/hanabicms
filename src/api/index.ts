@@ -1,11 +1,10 @@
-import { R2Bucket, D1Database } from "@cloudflare/workers-types";
+import type { R2Bucket, D1Database } from "@cloudflare/workers-types";
 import { Hono } from "hono";
 import auth from "./auth";
 import media from "./media";
-import users, { User } from "./users";
+import users, { type User } from "./users";
 import records from "./records";
-
-
+import type { CollectionConfig } from "../lib/collections";
 
 
 type Env = {
@@ -24,7 +23,8 @@ type Env = {
 type Variables = {
 	// session: Session;
 	user: User;
-	// collections: T;
+	collections?: Record<string, CollectionConfig<any>>;
+	collection?: CollectionConfig<any>;
 }
 
 export type C = {
@@ -32,8 +32,13 @@ export type C = {
 	Variables: Variables;
 }
 
-export function router(prefix = "") {
+export function router(prefix = "", collections?: Record<string, CollectionConfig<any>>) {
 	const app = new Hono<C>();
+
+	app.use(async (c, next) => {
+		c.set("collections", collections);
+		await next();
+	});
 
 	app.route(`${prefix}/auth`, auth);
 
@@ -63,4 +68,4 @@ export function router(prefix = "") {
 // 	},
 // };
 
-export default router();
+export default router("");

@@ -2,11 +2,6 @@ name = "cms"
 main = "src/api/index.ts"
 compatibility_date = "2023-05-25"
 
-[[kv_namespaces]]
-binding = "kvCMS"
-id = "..."
-preview_id = "..."
-
 [[r2_buckets]]
 binding = "r2CMS"
 bucket_name = "..."
