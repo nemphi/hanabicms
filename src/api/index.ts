@@ -1,10 +1,10 @@
-import type { R2Bucket, D1Database } from "@cloudflare/workers-types";
+import { R2Bucket, D1Database } from "@cloudflare/workers-types";
 import { Hono } from "hono";
 import auth from "./auth";
 import media from "./media";
 import users, { type User } from "./users";
 import records from "./records";
-import type { CollectionConfig } from "../lib/collections";
+import { CollectionConfig } from "../lib/collections";
 
 
 type Env = {

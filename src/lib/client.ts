@@ -1,5 +1,5 @@
-import type { CollectionFields, FieldValues } from "./collections";
-import type { ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "./types";
+import { CollectionFields, FieldValues } from "./collections";
+import { ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "./types";
 
 
 export class Client<T extends { [K in keyof T]: T[K] extends { fields: CollectionFields } ? (T[K] & { fields: CollectionFields }) : never }> {

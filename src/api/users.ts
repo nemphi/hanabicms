@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { hash } from "bcryptjs";
-import type { C } from ".";
+import { C } from ".";
 import { signedIn } from "./auth";
-import type { ApiError, ApiSimpleResponse, ApiRecordsResponse, ApiRecordResponse } from "../lib/types";
+import { ApiError, ApiSimpleResponse, ApiRecordsResponse, ApiRecordResponse } from "../lib/types";
 
 export type User = {
     id: string;
