@@ -2,7 +2,7 @@ import { R2Bucket, D1Database } from "@cloudflare/workers-types";
 import { Hono } from "hono";
 import auth from "./auth";
 import media from "./media";
-import users, { type User } from "./users";
+import users, { User } from "./users";
 import records from "./records";
 import { CollectionConfig } from "../lib/collections";
 
