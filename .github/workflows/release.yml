@@ -18,17 +18,10 @@ jobs:
           submodules: true
 
       - name: Set up Node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 18
       
-      # - name: Checkout zod-deno
-      #   uses: actions/checkout@v2
-      #   with:
-      #     token: ${{ secrets.ZOD_BOT_TOKEN }}
-      #     repository: colinhacks/zod-deno
-      #     path: deno/lib
-
       - name: Install dependencies
         run: |
           npm install
@@ -39,24 +32,27 @@ jobs:
 
       - id: publish
         name: Publish to NPM
-        uses: JS-DevTools/npm-publish@v2.2.0
+        uses: actions/setup-node@v3
         with:
-          token: ${{ secrets.NPM_TOKEN }}
-          dry-run: false
+          node-version: '18'
+          registry-url: https://registry.npmjs.org/
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Post-publish
-        if: steps.publish.outputs.type != 'none'
+        if: ${{ steps.publish.outputs.type }}
         run: |
           echo "Published ${{ steps.publish.outputs.type }} version: ${{ steps.publish.outputs.version }}"
 
       - name: Publish skipped
-        if: steps.publish.outputs.type == 'none'
+        if: ${{ steps.publish.outputs.type }}
         run: |
           echo "Version in package.json has not changed. Skipping."
           exit 0
 
       - name: Configure changelog
-        if: steps.publish.outputs.type != 'none'
+        if: ${{ steps.publish.outputs.type }}
         run: |
           echo '{"categories": [], "template": "## Commits:\n\n${{ '${{UNCATEGORIZED}}' }}", "pr_template": ${{ '"- ${{MERGE_SHA}} ${{TITLE}}"' }} }' > changelog_config.json
           cat changelog_config.json
@@ -64,7 +60,7 @@ jobs:
           echo "curr_commit=$(git rev-parse HEAD)" >> $GITHUB_ENV
 
       - name: Generate changelog
-        if: steps.publish.outputs.type != 'none'
+        if: ${{ steps.publish.outputs.type }}
         id: github_release
         uses: mikepenz/release-changelog-builder-action@v3.7.2
         env:
@@ -76,7 +72,7 @@ jobs:
           configuration: changelog_config.json
 
       - name: Create release
-        if: steps.publish.outputs.type != 'none'
+        if: ${{ steps.publish.outputs.type }}
         id: create_release
         uses: actions/create-release@latest
         env:
@@ -88,19 +84,3 @@ jobs:
           body: ${{steps.github_release.outputs.changelog}}
           draft: false
           prerelease: false
-
-      # - name: Create Deno release
-      #   if: steps.publish.outputs.type != 'none'
-      #   id: create_deno_release
-      #   uses: actions/create-release@latest
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.ZOD_BOT_TOKEN }}
-      #   with:
-      #     tag_name: v${{ steps.publish.outputs.version }}
-      #     release_name: v${{ steps.publish.outputs.version }}
-      #     commitish: refs/heads/main
-      #     body: ${{steps.github_release.outputs.changelog}}
-      #     draft: false
-      #     prerelease: false
-      #     owner: colinhacks
-      #     repo: zod-deno
