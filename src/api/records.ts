@@ -1,9 +1,9 @@
-import { Context, Hono, Next } from "hono";
+import { type Context, Hono, type Next } from "hono";
 import { nanoid } from "nanoid";
-import { C } from ".";
-import { Session } from "./auth";
-import { User } from "./users";
-import { ApiError, ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "../lib/types";
+import type { C } from ".";
+import type { Session } from "./auth";
+import type { User } from "./users";
+import type { ApiError, ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "../lib/types";
 
 export type Record = {
     id: string;

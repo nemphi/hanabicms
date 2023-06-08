@@ -1,4 +1,4 @@
-import { ApiRecordResponse } from "./types";
+import type { ApiRecordResponse } from "./types";
 
 export type CollectionFields = { [key: string]: ConfigFieldTypes };
 

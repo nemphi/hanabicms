@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
-import { C } from ".";
+import type { C } from ".";
 import { signedIn } from "./auth";
-import { ApiError, ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "../lib/types";
+import type { ApiError, ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "../lib/types";
 
 export type Media = {
     id: string;

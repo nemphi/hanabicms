@@ -173,3 +173,8 @@ dist
 wrangler.toml
 
 .wrangler
+
+# TypeScript
+
+\*.tsbuildinfo
+/build
