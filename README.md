@@ -1,5 +1,10 @@
 # Nemphi CMS
 
+<a href="https://twitter.com/shixzie" rel="nofollow"><img src="https://img.shields.io/badge/created%20by-@shixzie-4BBAAB.svg" alt="Created by Juan Alvarez"></a>
+<a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/nemphi/cms" alt="License"></a>
+<a href="https://www.npmjs.com/package/@nemphi/cms" rel="nofollow"><img src="https://img.shields.io/npm/dw/@nemphi/cms.svg" alt="npm"></a>
+<a href="https://www.npmjs.com/package/@nemphi/cms" rel="nofollow"><img src="https://img.shields.io/github/stars/nemphi/cms" alt="stars"></a>
+
 This is an end-to-end fully-types edge-cms heavily inspired by [@payloadcms](https://github.com/payloadcms/payload). It's a fully hosted CMS that runs on Cloudflare's edge network.
 
 ## Status
