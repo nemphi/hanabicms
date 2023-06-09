@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - "main"
-    paths:
-      - package.json
 
 jobs:
   build_and_publish:
@@ -27,8 +25,7 @@ jobs:
           npm install
 
       - name: Build
-        run: |
-          npm build
+        run: npm build
 
       - id: publish
         name: Publish to NPM
