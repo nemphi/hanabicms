@@ -1,6 +1,10 @@
 # Nemphi CMS
 
-This is an edge-cms heavily inspired by [@payloadcms](https://github.com/payloadcms/payload). It's a fully hosted CMS that runs on Cloudflare's edge network.
+This is an end-to-end fully-types edge-cms heavily inspired by [@payloadcms](https://github.com/payloadcms/payload). It's a fully hosted CMS that runs on Cloudflare's edge network.
+
+## Status
+
+This project is currently in ⚠️ **alpha** ⚠️. It's not ready for production use.
 
 ## Why?
 
@@ -10,15 +14,16 @@ Cloudflare's edge network is a great place to run a CMS, since it's fast, secure
 
 ## What is an "Edge-CMS"?
 
-The edge has two meanings, edge (location) and edge (runtime). This cms uses **both** meanings of edge since it's fully hosted and uses only Cloudflare's offerings.
+The edge has two meanings, edge (location) and edge (runtime). This cms uses **both** meanings of edge since it makes use of the entire Cloudflare Developer Platform offerings.
 
 ## The Stack
 
 We make use of the following Cloudflare products:
 
+* [Workers](https://www.cloudflare.com/products/workers/)
 * [D1 Database](https://developers.cloudflare.com/d1/)
-* [KV Store](https://www.cloudflare.com/products/workers-kv/)
 * [R2 Storage](https://www.cloudflare.com/products/r2/)
+<!-- * [KV Store](https://www.cloudflare.com/products/workers-kv/) -->
 
 ## Requirements
 
@@ -39,6 +44,10 @@ To do this simply clone the repo and deploy your worker.
 
 `cd cms`
 
+`cp wrangler.example.toml wrangler.toml`
+
+`# edit wrangler.toml and add your bindings info`
+
 `npx wrangler publish`
 
 ### Embedded in your app
@@ -54,18 +63,101 @@ Since we operate in a edge-runtime environment, you can include the cms in your 
 And in your server code
 
 ```ts
+// collections.ts
+
+import { collection } from "@nemphi/cms"
+
+const collections = {
+    contactForm: collection({
+        label: "Contact Form",
+        fields: {
+            name: {
+                type: "text",
+                label: "Name",
+                required: true,
+                default: ""
+            },
+            email: {
+                type: "text",
+                label: "Email",
+                required: true,
+                default: ""
+            },
+            message: {
+                type: "text",
+                label: "Message",
+                required: true,
+                default: ""
+            }
+        },
+        hooks: {
+            beforeCreate: async (data) => {
+                // you can make modifications that will be saved to DB
+                return data
+            },
+            afterCreate: async (record) => {
+                // get the record that was created
+            }
+        }
+    })
+}
+
+export default collections
+```
+
+```ts
+// server.ts
+
+// ...
+import { router } from "@nemphi/cms"
+import collections from "./collections"
+
+// /api is the path to your cms router
+const cms = router("/api", collections)
+
+
+// You will need to listen on the following methods:
+// GET, POST, PUT, DELETE
+export function handleRequest(request: Request): Response {
+  return cms.fetch(request)
+}
+
+///////////////////////////////
+
+// Next.js example
+// app/api/[...path]/route.ts
+export function GET(req: Request) {
+    return cms.fetch(req)
+}
+
+export function POST(req: Request) {
+    return cms.fetch(req)
+}
+
+export function PUT(req: Request) {
+    return cms.fetch(req)
+}
+
+export function DELETE(req: Request) {
+    return cms.fetch(req)
+}
+```
+
+```ts
 // component.ts
 
 // ...
-import cms, {Client} from "@nemphi/cms"
+import { Client } from "@nemphi/cms"
+import collections from "./collections"
 
-const cmsClient = new Client(cms)
+// /api is the path to your cms router
+const cmsClient = new Client("/api", "<AUTH TOKEN>", collections)
 
 // inside your component fetch logic
-const users = await cmsClient.collection("users").find()
+const forms = await cmsClient.collection("contactForm").list()
 ```
 
 ## Admin UI
 
-We offer an admin UI written in 
+We are currently building an admin UI for this CMS, but for now you can use the API directly.
 
