@@ -11,6 +11,8 @@ This is an end-to-end fully-types edge-cms heavily inspired by [@payloadcms](htt
 
 This project is currently in ⚠️ **alpha** ⚠️. It's not ready for production use.
 
+D1 (The database we use) is also in alpha stage, so it's not ready for production use either.
+
 ## Why?
 
 My initial goal was to contribute to Payload, but their dependency on the Node runtime and MongoDB made it impossible for me to contribute. I wanted to build a CMS that was fully hosted and used only Cloudflare's offerings.
@@ -45,15 +47,16 @@ This means deploying a Cloudflare worker and accesing it via the API.
 
 To do this simply clone the repo and deploy your worker.
 
-`git clone github.com/nemphi/cms`
+```bash
+git clone github.com/nemphi/cms
+cd cms
+cp wrangler.example.toml wrangler.toml
 
-`cd cms`
+# edit wrangler.toml and add your bindings info
 
-`cp wrangler.example.toml wrangler.toml`
-
-`# edit wrangler.toml and add your bindings info`
-
-`npx wrangler publish`
+npx wrangler d1 migrations apply D1_BINDING_NAME
+npx wrangler deploy
+```
 
 ### Embedded in your app
 
@@ -61,9 +64,10 @@ Since we operate in a edge-runtime environment, you can include the cms in your 
 
 **Note: For this to work you would need to deploy your app with [Cloudflare Pages](https://pages.cloudflare.com/)**
 
-`cd <your app>`
-
-`npm install @nemphi/cms`
+```bash
+cd YOUR_APP
+npm install @nemphi/cms
+```
 
 And in your server code
 
