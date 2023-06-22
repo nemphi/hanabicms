@@ -10,6 +10,6 @@ export type ApiSimpleResponse<T> = {
 export type ApiRecordResponse<T> = {
     id: string;
     data: T;
-    createdAt: string;
-    updatedAt: string;
+    createdAt: number;
+    updatedAt: number;
 }

@@ -5,20 +5,14 @@ import type { Session } from "./auth";
 import type { User } from "./users";
 import type { ApiError, ApiRecordResponse, ApiSimpleResponse } from "../lib/types";
 
-export type Record = {
-    id: string;
-    slug: string;
-    fields: { [key: string]: any };
-    createdAt: string;
-    updatedAt: string;
-    deletedAt: string;
-};
+type Rec = Record<string, any>;
 
 export type RecordMetadata = {
     title: string;
-    createdAt: string;
-    updatedAt: string;
-    deletedAt: string;
+    version: number;
+    createdAt: number;
+    updatedAt: number;
+    deletedAt?: number;
 }
 
 const app = new Hono<C>();
@@ -85,7 +79,6 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
-    // c.set("session", session);
     c.set("user", user);
 
     const userRoles = user.roles.split(",");
@@ -136,7 +129,7 @@ app.get("/:slug", async c => {
 
         const result = await c.env.kvCMS.list<RecordMetadata>({
             prefix: `records/${c.req.param("slug")}/`,
-            limit: 50,
+            limit: Number(c.req.query("limit")) ?? 50,
             cursor: c.req.query("cursor")
         })
 
@@ -170,18 +163,37 @@ app.get("/:slug", async c => {
 
 app.get("/:slug/:id", async c => {
     try {
-        const record = await c.env.kvCMS.get<Record>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
+        const record = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
 
         if (!record) {
             return c.json<ApiError>({
                 error: "Record not found"
             }, 404);
         }
+
+        if (!record.metadata) {
+            return c.json<ApiError>({
+                error: "Record metadata not found"
+            }, 404);
+        }
+
+        if (!record.value) {
+            return c.json<ApiError>({
+                error: "Record value not found"
+            }, 404);
+        }
+
+        if (record.metadata.deletedAt) {
+            return c.json<ApiError>({
+                error: "Record deleted"
+            }, 404);
+        }
+
         return c.json<ApiRecordResponse<any>>({
-            id: record.id,
-            data: record.fields,
-            createdAt: record.createdAt,
-            updatedAt: record.updatedAt
+            id: c.req.param("id"),
+            data: record.value,
+            createdAt: record.metadata.createdAt,
+            updatedAt: record.metadata.updatedAt
         });
 
     } catch (error) {
@@ -202,30 +214,25 @@ app.post("/:slug", async c => {
 
     try {
 
-        const now = new Date().toISOString();
+        const now = new Date().getTime();
 
-        const record: Record = {
-            id: nanoid(),
-            slug: c.req.param("slug"),
-            fields: body,
-            createdAt: now,
-            updatedAt: now,
-            deletedAt: ""
-        }
+        const recordId = nanoid();
+        const slug = c.req.param("slug");
 
-        await c.env.kvCMS.put(`records/${record.slug}/${record.id}`, JSON.stringify(record), {
+        await c.env.kvCMS.put(`records/${slug}/${recordId}`, JSON.stringify(body), {
             metadata: {
-                title: record.id,
-                createdAt: record.createdAt,
-                updatedAt: record.updatedAt,
-                deletedAt: ""
-            }
+                title: recordId,
+                createdAt: now,
+                updatedAt: now,
+            } as RecordMetadata
         });
 
         if (collection?.hooks?.afterCreate) {
             await collection.hooks.afterCreate({
-                ...record,
-                data: record.fields
+                id: recordId,
+                createdAt: now,
+                updatedAt: now,
+                data: body
             });
         }
 
@@ -241,24 +248,47 @@ app.post("/:slug", async c => {
 app.put("/:slug/:id", async c => {
     let body = await c.req.json();
 
-    let oldRecord: Record | null = null;
+    const oldRecord = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
+
+    if (!oldRecord) {
+        return c.json<ApiError>({
+            error: "Record not found"
+        }, 404);
+    }
+
+    if (!oldRecord.value) {
+        return c.json<ApiError>({
+            error: "Record value not found"
+        }, 404);
+    }
+
+    if (!oldRecord.metadata) {
+        return c.json<ApiError>({
+            error: "Record metadata not found"
+        }, 404);
+    }
+
     const collection = c.get("collection");
+
+    if (oldRecord.metadata.version < collection?.version!) {
+        if (collection?.hooks?.newVersion) {
+            body = await collection.hooks.newVersion({
+                id: c.req.param("id"),
+                data: oldRecord.value,
+                createdAt: oldRecord.metadata.createdAt,
+                updatedAt: oldRecord.metadata.updatedAt
+            }, oldRecord.metadata.version, collection.version!);
+        }
+    }
+
     if (collection?.hooks?.beforeUpdate) {
-
         try {
-            oldRecord = await c.env.kvCMS.get<Record>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
-
-            if (!oldRecord) {
-                return c.json<ApiError>({
-                    error: "Record not found"
-                }, 404);
-            }
 
             body = await collection.hooks.beforeUpdate({
-                id: oldRecord.id,
-                data: oldRecord.fields,
-                createdAt: oldRecord.createdAt,
-                updatedAt: oldRecord.updatedAt
+                id: c.req.param("id"),
+                data: oldRecord.value,
+                createdAt: oldRecord.metadata.createdAt,
+                updatedAt: oldRecord.metadata.updatedAt
             }, body);
 
         } catch (error) {
@@ -271,30 +301,25 @@ app.put("/:slug/:id", async c => {
     }
 
     try {
-        const now = new Date().toISOString();
-        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify({
-            ...oldRecord,
-            fields: body,
-            updatedAt: now
-        }), {
+        const now = new Date().getTime();
+        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify(body), {
             metadata: {
-                title: oldRecord!.id,
-                createdAt: oldRecord!.createdAt,
+                title: c.req.param("id"),
+                createdAt: oldRecord.metadata.createdAt,
                 updatedAt: now,
-                deletedAt: ""
-            }
+            } as RecordMetadata
         });
 
         if (collection?.hooks?.afterUpdate) {
             await collection.hooks.afterUpdate({
-                id: oldRecord!.id,
-                data: oldRecord!.fields,
-                createdAt: oldRecord!.createdAt,
-                updatedAt: oldRecord!.updatedAt
+                id: c.req.param("id"),
+                data: oldRecord.value,
+                createdAt: oldRecord.metadata.createdAt,
+                updatedAt: oldRecord.metadata.updatedAt
             }, {
                 id: c.req.param("id"),
                 data: body,
-                createdAt: oldRecord!.createdAt,
+                createdAt: oldRecord.metadata.createdAt,
                 updatedAt: now
             });
         }
@@ -310,22 +335,33 @@ app.put("/:slug/:id", async c => {
 
 app.delete("/:slug/:id", async c => {
 
-    const oldRecord = await c.env.kvCMS.get<Record>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
+    const oldRecord = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
+    if (!oldRecord) {
+        return c.json<ApiError>({
+            error: "Record not found"
+        }, 404);
+    }
+
+    if (!oldRecord.value) {
+        return c.json<ApiError>({
+            error: "Record value not found"
+        }, 404);
+    }
+
+    if (!oldRecord.metadata) {
+        return c.json<ApiError>({
+            error: "Record metadata not found"
+        }, 404);
+    }
+
     const collection = c.get("collection");
     if (collection?.hooks?.beforeDelete) {
         try {
-
-            if (!oldRecord) {
-                return c.json<ApiError>({
-                    error: "Record not found"
-                }, 404);
-            }
-
             await collection.hooks.beforeDelete({
-                id: oldRecord.id,
-                data: oldRecord.fields,
-                createdAt: oldRecord.createdAt,
-                updatedAt: oldRecord.updatedAt
+                id: c.req.param("id"),
+                data: oldRecord.value,
+                createdAt: oldRecord.metadata.createdAt,
+                updatedAt: oldRecord.metadata.updatedAt
             });
 
         } catch (error) {
@@ -337,27 +373,25 @@ app.delete("/:slug/:id", async c => {
 
     }
 
-    const now = new Date().toISOString();
+    const now = new Date().getTime();
 
     try {
-        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify({
-            ...oldRecord,
-            deletedAt: now,
-        }), {
+        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify(oldRecord.value), {
+            expirationTtl: 1000 * 60 * 60 * 24 * 30, // 30 days
             metadata: {
-                title: oldRecord!.id,
-                createdAt: oldRecord!.createdAt,
-                updatedAt: oldRecord!.updatedAt,
+                title: c.req.param("id"),
+                createdAt: oldRecord.metadata.createdAt,
+                updatedAt: oldRecord.metadata.updatedAt,
                 deletedAt: now
-            }
+            } as RecordMetadata
         });
 
         if (collection?.hooks?.afterDelete) {
             await collection.hooks.afterDelete({
-                id: oldRecord!.id,
-                data: oldRecord!.fields,
-                createdAt: oldRecord!.createdAt,
-                updatedAt: oldRecord!.updatedAt
+                id: c.req.param("id"),
+                data: oldRecord.value,
+                createdAt: oldRecord.metadata.createdAt,
+                updatedAt: oldRecord.metadata.updatedAt
             });
         }
 
