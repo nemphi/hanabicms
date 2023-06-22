@@ -2,7 +2,7 @@ import { type Context, Hono, type Next } from "hono";
 import { nanoid } from "nanoid";
 import { compare } from "bcryptjs";
 import type { C } from ".";
-import type { User } from "./users";
+import type { User, UserMetadata } from "./users";
 import type { ApiError, ApiSimpleResponse } from "../lib/types";
 
 const app = new Hono<C>();
@@ -11,9 +11,9 @@ export type Session = {
     id: string;
     user_id: string;
     token: string;
-    expires_at: string;
-    created_at: string;
-    updated_at: string;
+    expiresAt: string;
+    createdAt: string;
+    updatedAt: string;
 }
 
 export const signedIn = async (c: Context<C>, next: Next) => {
@@ -22,14 +22,13 @@ export const signedIn = async (c: Context<C>, next: Next) => {
         console.error("no token");
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM sessions WHERE token = ?");
-    const session = await stmt.bind(token).first<Session>();
+    const session = await c.env.kvCMS.get<Session>(`sessions/${token}`, "json");
 
     if (!session) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
-    const userStmt = c.env.d1CMS.prepare("SELECT * FROM users WHERE id = ?");
-    const user = await userStmt.bind(session.user_id).first<User>();
+
+    const user = await c.env.kvCMS.get<User>(`users/${session.user_id}`, "json");
 
     if (!user) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
@@ -46,15 +45,13 @@ export const isAdmin = async (c: Context<C>, next: Next) => {
     if (!token) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM sessions WHERE token = ?");
-    const session = await stmt.bind(token).first<Session>();
+    const session = await c.env.kvCMS.get<Session>(`sessions/${token}`, "json");
 
     if (!session) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
-    const userStmt = c.env.d1CMS.prepare("SELECT * FROM users WHERE id = ?");
-    const user = await userStmt.bind(session.user_id).first<User>();
+    const user = await c.env.kvCMS.get<User>(`users/${session.user_id}`, "json");
 
     if (!user) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
@@ -71,10 +68,42 @@ export const isAdmin = async (c: Context<C>, next: Next) => {
 }
 
 app.post("/signin", async c => {
-    const body = await c.req.json<User>();
+    const body = await c.req.json<{
+        email: string;
+        password: string;
+    }>();
 
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM users WHERE email = ?");
-    const user = await stmt.bind(body.email).first<User>();
+    let userKeys = await c.env.kvCMS.list<UserMetadata>({ prefix: "users/" });
+
+    console.log(userKeys.keys[0]?.metadata)
+
+    let userId = userKeys.keys.find(key => key.metadata?.email === body.email)?.name.slice(6);
+
+    if (!userId && userKeys.list_complete) {
+        return c.json<ApiError>({ error: "User not found" }, 404);
+    }
+
+    if (!userKeys.list_complete) {
+        let cursor = userKeys.cursor;
+
+        while (cursor) {
+            userKeys = await c.env.kvCMS.list<UserMetadata>({ prefix: "users/", cursor });
+            userId = userKeys.keys.find(key => key.metadata?.email === body.email)?.name.slice(6);
+            if (userId) {
+                break;
+            }
+            if (userKeys.list_complete) {
+                break;
+            }
+            cursor = userKeys.cursor;
+        }
+    }
+
+    if (!userId) {
+        return c.json<ApiError>({ error: "User not found" }, 404);
+    }
+
+    const user = await c.env.kvCMS.get<User>(`users/${userId}`, "json");
 
     if (!user) {
         return c.json<ApiError>({ error: "User not found" }, 404);
@@ -88,17 +117,27 @@ app.post("/signin", async c => {
 
     const token = nanoid(32);
 
-    const sessionStmt = c.env.d1CMS.prepare("INSERT INTO sessions (id, user_id, token, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)");
     const now = new Date().toISOString();
     const expiresAt = new Date(new Date().getTime() + 1000 * 60 * 60 * 24 * 7).toISOString(); // 7 days
-    const sessionResult = await sessionStmt.bind(nanoid(), user.id, token, expiresAt, now, now).run();
 
-    if (!sessionResult.success) {
-        console.error(sessionResult.error);
-        return c.json<ApiError>({ error: "Error creating session" }, 500);
+    const session: Session = {
+        id: nanoid(),
+        user_id: user.id,
+        token,
+        expiresAt: expiresAt,
+        createdAt: now,
+        updatedAt: now
     }
 
-    return c.json<ApiSimpleResponse<any>>({ data: { token } });
+    await c.env.kvCMS.put(`sessions/${token}`, JSON.stringify(session), {
+        expirationTtl: 1000 * 60 * 60 * 24 * 7 // 7 days
+    });
+
+    return c.json<ApiSimpleResponse<any>>({ message: "OK" }, {
+        headers: {
+            "X-Auth-Token": token
+        }
+    });
 });
 
 app.post("/signout", async c => {
@@ -108,13 +147,7 @@ app.post("/signout", async c => {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
-    const stmt = c.env.d1CMS.prepare("DELETE FROM sessions WHERE token = ?");
-    const result = await stmt.bind(token).run();
-
-    if (!result.success) {
-        console.error(result.error);
-        return c.json<ApiError>({ error: "Error deleting session" }, 500);
-    }
+    await c.env.kvCMS.delete(`sessions/${token}`);
 
     return c.json<ApiSimpleResponse<any>>({ message: "Signed out" });
 });

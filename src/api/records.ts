@@ -3,16 +3,23 @@ import { nanoid } from "nanoid";
 import type { C } from ".";
 import type { Session } from "./auth";
 import type { User } from "./users";
-import type { ApiError, ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "../lib/types";
+import type { ApiError, ApiRecordResponse, ApiSimpleResponse } from "../lib/types";
 
 export type Record = {
     id: string;
     slug: string;
     fields: { [key: string]: any };
-    created_at: string;
-    updated_at: string;
-    deleted_at: string;
+    createdAt: string;
+    updatedAt: string;
+    deletedAt: string;
 };
+
+export type RecordMetadata = {
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+    deletedAt: string;
+}
 
 const app = new Hono<C>();
 
@@ -65,14 +72,14 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
         console.error("no token");
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM sessions WHERE token = ?");
-    const session = await stmt.bind(token).first<Session>();
+
+    const session = await c.env.kvCMS.get<Session>(`sessions/${token}`, "json");
 
     if (!session) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
-    const userStmt = c.env.d1CMS.prepare("SELECT * FROM users WHERE id = ?");
-    const user = await userStmt.bind(session.user_id).first<User>();
+
+    const user = await c.env.kvCMS.get<User>(`users/${session.user_id}`, "json");
 
     if (!user) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
@@ -125,32 +132,34 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
 app.use("*", checkRecordAccess);
 
 app.get("/:slug", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM records WHERE slug = ?");
     try {
-        const result = await stmt.bind(
-            c.req.param("slug")
-        ).all<Record>();
 
-        if (!result.success) {
-            return c.json<ApiError>({
-                error: result.error
-            }, 500);
-        }
+        const result = await c.env.kvCMS.list<RecordMetadata>({
+            prefix: `records/${c.req.param("slug")}/`,
+            limit: 50,
+            cursor: c.req.query("cursor")
+        })
 
-        if (!result.results) {
-            return c.json<ApiRecordsResponse<Record>>({
-                records: []
+
+        if (result.list_complete) {
+            return c.json<ApiSimpleResponse<{
+                keys: typeof result.keys;
+            }>>({
+                data: {
+                    keys: result.keys
+                }
             });
         }
 
-        const records = result.results.map(r => ({
-            id: r.id,
-            data: r.fields,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at
-        }));
-
-        return c.json<ApiRecordsResponse<any>>({ records });
+        return c.json<ApiSimpleResponse<{
+            keys: typeof result.keys;
+            cursor: string;
+        }>>({
+            data: {
+                keys: result.keys,
+                cursor: result.cursor
+            }
+        });
     } catch (error) {
         console.log(error);
         return c.json<ApiError>({
@@ -160,9 +169,8 @@ app.get("/:slug", async c => {
 });
 
 app.get("/:slug/:id", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM records WHERE id = ?");
     try {
-        const record = await stmt.bind(c.req.param("id")).first<Record>();
+        const record = await c.env.kvCMS.get<Record>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
 
         if (!record) {
             return c.json<ApiError>({
@@ -172,8 +180,8 @@ app.get("/:slug/:id", async c => {
         return c.json<ApiRecordResponse<any>>({
             id: record.id,
             data: record.fields,
-            createdAt: record.created_at,
-            updatedAt: record.updated_at
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt
         });
 
     } catch (error) {
@@ -192,29 +200,33 @@ app.post("/:slug", async c => {
         body = await collection.hooks.beforeCreate(body);
     }
 
-    const stmt = c.env.d1CMS.prepare("INSERT INTO records (id, slug, fields, created_at, updated_at) VALUES (?, ?, ?, ?, ?)");
     try {
 
         const now = new Date().toISOString();
 
-        const record = {
+        const record: Record = {
             id: nanoid(),
             slug: c.req.param("slug"),
-            data: body,
+            fields: body,
             createdAt: now,
-            updatedAt: now
+            updatedAt: now,
+            deletedAt: ""
         }
 
-        const result = await stmt.bind(record.id, record.slug, record.data, record.createdAt, record.updatedAt).run();
-
-        if (!result.success) {
-            return c.json<ApiError>({
-                error: result.error
-            }, 500);
-        }
+        await c.env.kvCMS.put(`records/${record.slug}/${record.id}`, JSON.stringify(record), {
+            metadata: {
+                title: record.id,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt,
+                deletedAt: ""
+            }
+        });
 
         if (collection?.hooks?.afterCreate) {
-            await collection.hooks.afterCreate(record);
+            await collection.hooks.afterCreate({
+                ...record,
+                data: record.fields
+            });
         }
 
         return c.json<ApiSimpleResponse<any>>({ message: "OK" });
@@ -229,19 +241,24 @@ app.post("/:slug", async c => {
 app.put("/:slug/:id", async c => {
     let body = await c.req.json();
 
-    let oldRecord: Record | undefined = undefined;
+    let oldRecord: Record | null = null;
     const collection = c.get("collection");
     if (collection?.hooks?.beforeUpdate) {
 
-        const stmt = c.env.d1CMS.prepare("SELECT * FROM records WHERE id = ?");
         try {
-            oldRecord = await stmt.bind(c.req.param("id")).first<Record>();
+            oldRecord = await c.env.kvCMS.get<Record>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
+
+            if (!oldRecord) {
+                return c.json<ApiError>({
+                    error: "Record not found"
+                }, 404);
+            }
 
             body = await collection.hooks.beforeUpdate({
                 id: oldRecord.id,
                 data: oldRecord.fields,
-                createdAt: oldRecord.created_at,
-                updatedAt: oldRecord.updated_at
+                createdAt: oldRecord.createdAt,
+                updatedAt: oldRecord.updatedAt
             }, body);
 
         } catch (error) {
@@ -253,33 +270,31 @@ app.put("/:slug/:id", async c => {
 
     }
 
-    const stmt = c.env.d1CMS.prepare("UPDATE records SET fields = ?, updated_at = ? WHERE id = ?");
     try {
         const now = new Date().toISOString();
-        const result = await stmt
-            .bind(
-                body,
-                now,
-                c.req.param("id")
-            )
-            .run();
-
-        if (!result.success) {
-            return c.json<ApiError>({
-                error: result.error
-            }, 500);
-        }
+        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify({
+            ...oldRecord,
+            fields: body,
+            updatedAt: now
+        }), {
+            metadata: {
+                title: oldRecord!.id,
+                createdAt: oldRecord!.createdAt,
+                updatedAt: now,
+                deletedAt: ""
+            }
+        });
 
         if (collection?.hooks?.afterUpdate) {
             await collection.hooks.afterUpdate({
                 id: oldRecord!.id,
                 data: oldRecord!.fields,
-                createdAt: oldRecord!.created_at,
-                updatedAt: oldRecord!.updated_at
+                createdAt: oldRecord!.createdAt,
+                updatedAt: oldRecord!.updatedAt
             }, {
                 id: c.req.param("id"),
                 data: body,
-                createdAt: oldRecord!.created_at,
+                createdAt: oldRecord!.createdAt,
                 updatedAt: now
             });
         }
@@ -295,19 +310,22 @@ app.put("/:slug/:id", async c => {
 
 app.delete("/:slug/:id", async c => {
 
-    let oldRecord: Record | undefined = undefined;
+    const oldRecord = await c.env.kvCMS.get<Record>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
     const collection = c.get("collection");
     if (collection?.hooks?.beforeDelete) {
-
-        const stmt = c.env.d1CMS.prepare("SELECT * FROM records WHERE id = ?");
         try {
-            oldRecord = await stmt.bind(c.req.param("id")).first<Record>();
+
+            if (!oldRecord) {
+                return c.json<ApiError>({
+                    error: "Record not found"
+                }, 404);
+            }
 
             await collection.hooks.beforeDelete({
                 id: oldRecord.id,
                 data: oldRecord.fields,
-                createdAt: oldRecord.created_at,
-                updatedAt: oldRecord.updated_at
+                createdAt: oldRecord.createdAt,
+                updatedAt: oldRecord.updatedAt
             });
 
         } catch (error) {
@@ -320,22 +338,26 @@ app.delete("/:slug/:id", async c => {
     }
 
     const now = new Date().toISOString();
-    const stmt = c.env.d1CMS.prepare("UPDATE records SET deleted_at = ? WHERE id = ?");
-    try {
-        const result = await stmt.bind(now, c.req.param("id")).run();
 
-        if (!result.success) {
-            return c.json<ApiError>({
-                error: result.error
-            }, 500);
-        }
+    try {
+        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify({
+            ...oldRecord,
+            deletedAt: now,
+        }), {
+            metadata: {
+                title: oldRecord!.id,
+                createdAt: oldRecord!.createdAt,
+                updatedAt: oldRecord!.updatedAt,
+                deletedAt: now
+            }
+        });
 
         if (collection?.hooks?.afterDelete) {
             await collection.hooks.afterDelete({
                 id: oldRecord!.id,
                 data: oldRecord!.fields,
-                createdAt: oldRecord!.created_at,
-                updatedAt: oldRecord!.updated_at
+                createdAt: oldRecord!.createdAt,
+                updatedAt: oldRecord!.updatedAt
             });
         }
 

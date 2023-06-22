@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { hash } from "bcryptjs";
 import type { C } from ".";
 import { signedIn } from "./auth";
-import type { ApiError, ApiSimpleResponse, ApiRecordsResponse, ApiRecordResponse } from "../lib/types";
+import type { ApiError, ApiSimpleResponse, ApiRecordResponse } from "../lib/types";
 
 export type User = {
     id: string;
@@ -12,8 +12,13 @@ export type User = {
     salt: string;
     password: string;
     roles: string;
-    created_at: string;
-    updated_at: string;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export type UserMetadata = {
+    email: string;
+    roles: string;
 }
 
 
@@ -22,36 +27,40 @@ const app = new Hono<C>();
 app.use("*", signedIn);
 
 app.get("/", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT id, name, email, roles, created_at, updated_at FROM users");
 
-    const result = await stmt.all<User>();
+    const result = await c.env.kvCMS.list({
+        prefix: "users/",
+        limit: 100
+    });
 
-    if (!result.success) {
-        return c.json<ApiError>({
-            error: result.error
-        }, 500);
+    if (result.list_complete) {
+        return c.json<ApiSimpleResponse<{
+            keys: typeof result.keys;
+            list_complete: true;
+        }>>({
+            data: {
+                keys: result.keys,
+                list_complete: true
+            }
+        })
     }
 
-    if (!result.results) {
-        return c.json<ApiError>({
-            error: "No users found"
-        }, 404);
-    }
-
-    const records = result.results.map(r => ({
-        id: r.id,
-        data: r,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at
-    }));
-
-    return c.json<ApiRecordsResponse<User>>({ records })
+    return c.json<ApiSimpleResponse<{
+        keys: typeof result.keys;
+        list_complete: boolean;
+        cursor: string;
+    }>>({
+        data: {
+            keys: result.keys,
+            list_complete: false,
+            cursor: result.cursor
+        }
+    })
 });
 
 app.post("/", async c => {
     const body = await c.req.json<User>();
 
-    const stmt = c.env.d1CMS.prepare("INSERT INTO users (id, name, email, salt, password, roles, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
     try {
         const now = new Date().toISOString();
         const saltBase = new TextEncoder().encode(nanoid());
@@ -63,13 +72,22 @@ app.post("/", async c => {
         );
         const saltStr = new Uint8Array(salt).toString();
         const hashedPassword = await hash(`${body.password}.${saltStr}`, 10);
-        const result = await stmt.bind(nanoid(), body.name, body.email, saltStr, hashedPassword, body.roles, now, now).run();
-
-        if (!result.success) {
-            return c.json<ApiError>({
-                error: result.error as string
-            }, 500);
-        }
+        const userId = nanoid();
+        await c.env.kvCMS.put(`users/${userId}`, JSON.stringify({
+            id: userId,
+            name: body.name,
+            email: body.email,
+            salt: saltStr,
+            password: hashedPassword,
+            roles: body.roles,
+            createdAt: now,
+            updatedAt: now
+        }), {
+            metadata: {
+                email: body.email,
+                roles: body.roles
+            }
+        });
 
         return c.json<ApiSimpleResponse<any>>({ message: "OK" }, 201);
     } catch (error: unknown) {
@@ -81,8 +99,7 @@ app.post("/", async c => {
 });
 
 app.get("/:id", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT id, name, email, roles, created_at, updated_at FROM users WHERE id = ?");
-    const user = await stmt.bind(c.req.param("id")).first<User>();
+    const user = await c.env.kvCMS.get<User>(`users/${c.req.param("id")}`, "json");
 
     if (!user) {
         return c.json<ApiError>({
@@ -92,34 +109,43 @@ app.get("/:id", async c => {
     return c.json<ApiRecordResponse<User>>({
         id: user.id,
         data: user,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
     });
 });
 
 app.put("/:id", async c => {
     const body = await c.req.json<User>();
 
-    const stmt = c.env.d1CMS.prepare("UPDATE users SET name = ?, email = ?, password = ?, roles = ? WHERE id = ?");
-    const result = await stmt.bind(body.name, body.email, body.password, body.roles, c.req.param("id")).run();
+    const oldUser = await c.env.kvCMS.get<User>(`users/${c.req.param("id")}`, "json");
 
-    if (!result.success) {
+    if (!oldUser) {
         return c.json<ApiError>({
-            error: result.error
-        }, 500);
+            error: "User not found"
+        }, 404);
     }
+
+    await c.env.kvCMS.put(`users/${c.req.param("id")}`, JSON.stringify({
+        id: c.req.param("id"),
+        name: body.name,
+        email: body.email,
+        salt: oldUser.salt,
+        password: oldUser.password,
+        roles: body.roles,
+        createdAt: oldUser.createdAt,
+        updatedAt: new Date().toISOString()
+    }), {
+        metadata: {
+            email: body.email,
+            roles: body.roles
+        }
+    });
+
     return c.json<ApiSimpleResponse<any>>({ message: "OK" });
 });
 
 app.delete("/:id", async c => {
-    const stmt = c.env.d1CMS.prepare("DELETE FROM users WHERE id = ?");
-    const result = await stmt.bind(c.req.param("id")).run();
-
-    if (!result.success) {
-        return c.json<ApiError>({
-            error: result.error
-        }, 500);
-    }
+    await c.env.kvCMS.delete(`users/${c.req.param("id")}`);
 
     return c.json<ApiSimpleResponse<any>>({ message: "OK" });
 });

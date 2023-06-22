@@ -14,6 +14,7 @@ export type CollectionConfig<T extends CollectionFields> = {
     fields: T;
     // auth?: boolean;
     // external?: boolean;
+    version?: number;
     access?: CollectionAccess;
     hooks?: {
         beforeCreate?: (data: FieldValues<T>) => Promise<FieldValues<T>>;
@@ -24,6 +25,7 @@ export type CollectionConfig<T extends CollectionFields> = {
         afterUpdate?: (old: CollectionRecord<T>, updated: CollectionRecord<T>) => Promise<void>;
         beforeDelete?: (data: CollectionRecord<T>) => Promise<void>;
         afterDelete?: (data: CollectionRecord<T>) => Promise<void>;
+        newVersion?: (data: CollectionRecord<T>, oldVersion: number, newVersion: number) => Promise<FieldValues<T>>;
     }
 }
 
@@ -33,9 +35,6 @@ export function collection<T extends CollectionFields>(config: CollectionConfig<
 
 type CollectionRecord<T extends CollectionFields> = ApiRecordResponse<FieldValues<T>>
 
-// export type FieldValues<T extends CollectionFields> = {
-//     [K in keyof T]: T[K]["default"];
-// }
 
 export type FieldValues<T extends CollectionFields, K extends keyof T = keyof T> =
     {
@@ -66,6 +65,7 @@ export type ConfigFieldText = {
     type: 'text';
     required: boolean;
     default: string;
+    filter?: boolean;
 };
 
 export type ConfigFieldNumber = {
@@ -73,6 +73,7 @@ export type ConfigFieldNumber = {
     type: 'number';
     required: boolean;
     default: number;
+    filter?: boolean;
 }
 
 export type ConfigFieldDate = {
@@ -80,6 +81,7 @@ export type ConfigFieldDate = {
     type: 'date';
     required: boolean;
     default: Date;
+    filter?: boolean;
 };
 
 export type ConfigFieldDateTime = {
@@ -87,6 +89,7 @@ export type ConfigFieldDateTime = {
     type: 'datetime';
     required: boolean;
     default: Date;
+    filter?: boolean;
 };
 
 export type ConfigFieldList = {
@@ -101,5 +104,7 @@ export type ConfigFieldUpload = {
     label: CollectionConfigFieldLabel;
     type: 'upload';
     required: boolean;
-    default: string;
+    removeOnUpdate: boolean;
+    removeOnDelete: boolean;
+    default: string | File | null;
 };

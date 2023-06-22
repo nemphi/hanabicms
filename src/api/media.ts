@@ -1,92 +1,104 @@
 import { Hono } from "hono";
+import { cache } from "hono/cache"
 import { nanoid } from "nanoid";
 import type { C } from ".";
 import { signedIn } from "./auth";
-import type { ApiError, ApiRecordResponse, ApiRecordsResponse, ApiSimpleResponse } from "../lib/types";
+import type { ApiError, ApiRecordResponse, ApiSimpleResponse } from "../lib/types";
 
 export type Media = {
     id: string;
     name: string;
-    alt_text: string;
-    content_type: string;
+    altText: string;
+    contentType: string;
     size: number;
     path: string;
-    user_id: string;
-    created_at: string;
-    updated_at: string;
+    userId: string;
+    createdAt: string;
+    updatedAt: string;
 };
+
+type MediaMetadata = {
+    name: string;
+    contentType: string;
+    size: number;
+    path: string;
+    createdAt: string;
+}
+
+export type UploadToken = {
+    id: string;
+    completed: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
 
 const app = new Hono<C>();
 
 app.use("*", signedIn);
 
 app.get("/", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM media");
-    const result = await stmt.all<Media>();
+    const results = await c.env.kvCMS.list<MediaMetadata>({
+        prefix: "media/",
+        limit: 100
+    });
 
-    if (!result.success) {
-        return c.json<ApiError>({
-            error: result.error
-        }, 500);
+    if (results.list_complete) {
+        return c.json<ApiSimpleResponse<{
+            keys: typeof results.keys;
+            list_complete: true;
+        }>>({
+            data: {
+                keys: results.keys,
+                list_complete: true
+            }
+        })
     }
 
-    if (!result.results) {
-        return c.json<ApiRecordsResponse<Media>>({
-            records: []
-        });
-    }
-
-    const records = result.results.map(r => ({
-        id: r.id,
+    return c.json<ApiSimpleResponse<{
+        keys: typeof results.keys;
+        list_complete: false;
+        cursor: string;
+    }>>({
         data: {
-            name: r.name,
-            alt_text: r.alt_text,
-            content_type: r.content_type,
-            size: r.size,
-            path: r.path,
-            user_id: r.user_id,
-        },
-        createdAt: r.created_at,
-        updatedAt: r.updated_at
-    }));
-
-    return c.json<ApiRecordsResponse<any>>({ records });
+            keys: results.keys,
+            list_complete: false,
+            cursor: results.cursor
+        }
+    })
 });
 
 app.post("/", async c => {
     const body = await c.req.formData();
 
-    const stmt = c.env.d1CMS.prepare(
-        "INSERT INTO media (name, alt_text, content_type, size, path, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    );
     try {
         const now = new Date().toISOString();
 
         // Upload file to r2CMS
         // @ts-ignore
         const file = body.get("file") as File;
-        const filename = `${nanoid()}.${file.name.replace(/\s/g, "")}`;
+        const mediaId = nanoid();
+        const filename = `${mediaId}.${file.name.replace(/\s/g, "")}`;
         const r2File = await c.env.r2CMS.put(filename, await file.arrayBuffer())
 
-        // Insert media into d1CMS
-        const result = await stmt
-            .bind(
-                file.name,
-                file.name,
-                file.type,
-                r2File.size,
-                r2File.key,
-                c.get("user").id,
-                now,
-                now
-            )
-            .run();
-
-        if (!result.success) {
-            return c.json<ApiError>({
-                error: result.error
-            }, 500);
-        }
+        await c.env.kvCMS.put(`media/${filename}`, JSON.stringify({
+            id: mediaId,
+            name: file.name,
+            altText: file.name,
+            contentType: file.type,
+            size: r2File.size,
+            path: r2File.key,
+            userId: c.get("user").id,
+            createdAt: now,
+            updatedAt: now
+        }), {
+            metadata: {
+                name: file.name,
+                contentType: file.type,
+                size: r2File.size,
+                path: r2File.key,
+                createdAt: now
+            }
+        })
 
         return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {
@@ -98,8 +110,7 @@ app.post("/", async c => {
 });
 
 app.get("/:id", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM media WHERE id = ?");
-    const media = await stmt.bind(c.req.param("id")).first<Media>();
+    const media = await c.env.kvCMS.get<Media>(`media/${c.req.param("id")}`);
 
     if (!media) {
         return c.json<ApiError>({
@@ -111,20 +122,22 @@ app.get("/:id", async c => {
         id: media.id,
         data: {
             name: media.name,
-            alt_text: media.alt_text,
-            content_type: media.content_type,
+            altText: media.altText,
+            contentType: media.contentType,
             size: media.size,
             path: media.path,
-            user_id: media.user_id,
+            userId: media.userId,
         },
-        createdAt: media.created_at,
-        updatedAt: media.updated_at
+        createdAt: media.createdAt,
+        updatedAt: media.updatedAt
     });
 });
 
-app.get("/:id/file", async c => {
-    const stmt = c.env.d1CMS.prepare("SELECT * FROM media WHERE id = ?");
-    const media = await stmt.bind(c.req.param("id")).first<Media>();
+app.get("/:id/file", cache({
+    cacheName: 'media',
+    cacheControl: 'max-age=3600',
+}), async c => {
+    const media = await c.env.kvCMS.get<Media>(`media/${c.req.param("id")}`);
 
     if (!media) {
         return c.json<ApiError>({
@@ -142,30 +155,37 @@ app.get("/:id/file", async c => {
 
     return c.newResponse(await r2File.arrayBuffer(), 200, {
         "Content-Disposition": `inline; filename="${media.name}"`,
-        "Content-Type": media.content_type,
+        "Content-Type": media.contentType,
     })
 });
 
 app.put("/:id", async c => {
     const body = await c.req.json<Media>();
 
-    const stmt = c.env.d1CMS.prepare("UPDATE media SET name = ?, alt_text = ?, updated_at = ? WHERE id = ?");
     try {
         const now = new Date().toISOString();
-        const result = await stmt
-            .bind(
-                body.name,
-                body.alt_text,
-                now,
-                c.req.param("id")
-            )
-            .run();
+        const media = await c.env.kvCMS.get<Media>(`media/${c.req.param("id")}`);
 
-        if (!result.success) {
+        if (!media) {
             return c.json<ApiError>({
-                error: result.error
-            }, 500);
+                error: "Media not found"
+            }, 404);
         }
+
+        await c.env.kvCMS.put(`media/${c.req.param("id")}`, JSON.stringify({
+            ...media,
+            name: body.name,
+            altText: body.altText,
+            updatedAt: now
+        }), {
+            metadata: {
+                name: body.name,
+                contentType: media.contentType,
+                size: media.size,
+                path: media.path,
+                createdAt: media.createdAt
+            }
+        })
 
         return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {
@@ -177,15 +197,8 @@ app.put("/:id", async c => {
 });
 
 app.delete("/:id", async c => {
-    const stmt = c.env.d1CMS.prepare("DELETE FROM media WHERE id = ?");
     try {
-        const result = await stmt.bind(c.req.param("id")).run();
-
-        if (!result.success) {
-            return c.json<ApiError>({
-                error: result.error
-            }, 500);
-        }
+        await c.env.kvCMS.delete(`media/${c.req.param("id")}`);
 
         return c.json<ApiSimpleResponse<any>>({ message: "OK" });
     } catch (error) {

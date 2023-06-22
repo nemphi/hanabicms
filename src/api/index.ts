@@ -1,23 +1,18 @@
-import type { R2Bucket, D1Database } from "@cloudflare/workers-types";
+import type { R2Bucket, KVNamespace } from "@cloudflare/workers-types";
 import { Hono } from "hono";
 import auth from "./auth";
 import media from "./media";
 import users, { type User } from "./users";
 import records from "./records";
+import install from "./install";
+
 import type { CollectionConfig } from "../lib/collections";
 
 
 type Env = {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// kvCMS: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// sessions: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
 	r2CMS: R2Bucket;
 
-	d1CMS: D1Database;
+	kvCMS: KVNamespace;
 }
 
 type Variables = {
@@ -48,24 +43,10 @@ export function router(prefix = "", collections?: Record<string, CollectionConfi
 
 	app.route(`${prefix}/data`, records);
 
+	app.route(`${prefix}/install`, install);
+
 	return app;
 }
 
-
-
-// app.get("/", async c => {
-// 	c.text("Hello world");
-// 	return c.text("Hello World!");
-// })
-
-// export default {
-// 	async fetch(
-// 		request: Request,
-// 		env: Env,
-// 		ctx: ExecutionContext
-// 	): Promise<Response> {
-// 		return new Response("Hello World!");
-// 	},
-// };
 
 export default router("");
