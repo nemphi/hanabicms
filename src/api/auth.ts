@@ -75,8 +75,6 @@ app.post("/signin", async c => {
 
     let userKeys = await c.env.kvCMS.list<UserMetadata>({ prefix: "users/" });
 
-    console.log(userKeys.keys[0]?.metadata)
-
     let userId = userKeys.keys.find(key => key.metadata?.email === body.email)?.name.slice(6);
 
     if (!userId && userKeys.list_complete) {
