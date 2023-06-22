@@ -28,9 +28,8 @@ The edge has two meanings, edge (location) and edge (runtime). This cms uses **b
 We make use of the following Cloudflare products:
 
 * [Workers](https://www.cloudflare.com/products/workers/)
-* [D1 Database](https://developers.cloudflare.com/d1/)
+* [Workers KV](https://www.cloudflare.com/products/workers-kv/)
 * [R2 Storage](https://www.cloudflare.com/products/r2/)
-<!-- * [KV Store](https://www.cloudflare.com/products/workers-kv/) -->
 
 ## Requirements
 
@@ -39,7 +38,7 @@ We make use of the following Cloudflare products:
 
 ## Instalation
 
-This cms can be installed in two ways, but regardless
+This cms can be installed in two ways:
 
 ### Standalone instalation
 
@@ -128,7 +127,7 @@ const cms = router("/api", collections)
 // You will need to listen on the following methods:
 // GET, POST, PUT, DELETE
 export function handleRequest(request: Request): Response {
-  return cms.fetch(request)
+  return cms.fetch(request, process.env)
 }
 
 ///////////////////////////////
@@ -136,19 +135,19 @@ export function handleRequest(request: Request): Response {
 // Next.js example
 // app/api/[...path]/route.ts
 export function GET(req: Request) {
-    return cms.fetch(req)
+    return cms.fetch(req, process.env)
 }
 
 export function POST(req: Request) {
-    return cms.fetch(req)
+    return cms.fetch(req, process.env)
 }
 
 export function PUT(req: Request) {
-    return cms.fetch(req)
+    return cms.fetch(req, process.env)
 }
 
 export function DELETE(req: Request) {
-    return cms.fetch(req)
+    return cms.fetch(req, process.env)
 }
 ```
 
@@ -168,5 +167,5 @@ const forms = await cmsClient.collection("contactForm").list()
 
 ## Admin UI
 
-We are currently building an admin UI for this CMS, but for now you can use the API directly.
+We are currently building an admin UI for this CMS, but for now you can use the API/SDK directly.
 
