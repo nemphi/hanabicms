@@ -73,7 +73,7 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
-    const user = await c.env.kvCMS.get<User>(`users/${session.user_id}`, "json");
+    const user = await c.env.kvCMS.get<User>(`users/${session.userId}`, "json");
 
     if (!user) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);

@@ -8,12 +8,15 @@ import type { ApiError, ApiSimpleResponse } from "../lib/types";
 const app = new Hono<C>();
 
 export type Session = {
-    id: string;
-    user_id: string;
     token: string;
-    expiresAt: string;
-    createdAt: string;
-    updatedAt: string;
+    userId: string;
+}
+
+export type SessionMetadata = {
+    userId: string;
+    expiresAt: number;
+    createdAt: number;
+    updatedAt: number;
 }
 
 export const signedIn = async (c: Context<C>, next: Next) => {
@@ -28,7 +31,7 @@ export const signedIn = async (c: Context<C>, next: Next) => {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
-    const user = await c.env.kvCMS.get<User>(`users/${session.user_id}`, "json");
+    const user = await c.env.kvCMS.get<User>(`users/${session.userId}`, "json");
 
     if (!user) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
@@ -51,7 +54,7 @@ export const isAdmin = async (c: Context<C>, next: Next) => {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
-    const user = await c.env.kvCMS.get<User>(`users/${session.user_id}`, "json");
+    const user = await c.env.kvCMS.get<User>(`users/${session.userId}`, "json");
 
     if (!user) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
@@ -115,20 +118,24 @@ app.post("/signin", async c => {
 
     const token = nanoid(32);
 
-    const now = new Date().toISOString();
-    const expiresAt = new Date(new Date().getTime() + 1000 * 60 * 60 * 24 * 7).toISOString(); // 7 days
+    const now = new Date().getTime();
+    const expiresAt = new Date(new Date().getTime() + 1000 * 60 * 60 * 24 * 7).getTime(); // 7 days
 
     const session: Session = {
-        id: nanoid(),
-        user_id: user.id,
+        userId: userId,
         token,
-        expiresAt: expiresAt,
+    }
+
+    const metadata: SessionMetadata = {
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        expiresAt,
+        userId
     }
 
     await c.env.kvCMS.put(`sessions/${token}`, JSON.stringify(session), {
-        expirationTtl: 1000 * 60 * 60 * 24 * 7 // 7 days
+        expiration: expiresAt, // 7 days
+        metadata
     });
 
     return c.json<ApiSimpleResponse<any>>({ message: "OK" }, {

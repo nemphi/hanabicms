@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { hash } from "bcryptjs";
 import type { C } from ".";
-import { signedIn } from "./auth";
+import { isAdmin } from "./auth";
 import type { ApiError, ApiSimpleResponse, ApiRecordResponse } from "../lib/types";
 
 export type User = {
@@ -12,19 +12,19 @@ export type User = {
     salt: string;
     password: string;
     roles: string;
-    createdAt: string;
-    updatedAt: string;
 }
 
 export type UserMetadata = {
     email: string;
     roles: string;
+    createdAt: number;
+    updatedAt: number;
 }
 
 
 const app = new Hono<C>();
 
-app.use("*", signedIn);
+app.use("*", isAdmin);
 
 app.get("/", async c => {
 
@@ -62,7 +62,7 @@ app.post("/", async c => {
     const body = await c.req.json<User>();
 
     try {
-        const now = new Date().toISOString();
+        const now = new Date().getTime();
         const saltBase = new TextEncoder().encode(nanoid());
         const salt = await crypto.subtle.digest(
             {
@@ -73,21 +73,24 @@ app.post("/", async c => {
         const saltStr = new Uint8Array(salt).toString();
         const hashedPassword = await hash(`${body.password}.${saltStr}`, 10);
         const userId = nanoid();
-        await c.env.kvCMS.put(`users/${userId}`, JSON.stringify({
+
+        const user: User = {
             id: userId,
             name: body.name,
             email: body.email,
             salt: saltStr,
             password: hashedPassword,
             roles: body.roles,
+        }
+
+        const metadata: UserMetadata = {
+            email: body.email,
+            roles: body.roles,
             createdAt: now,
             updatedAt: now
-        }), {
-            metadata: {
-                email: body.email,
-                roles: body.roles
-            }
-        });
+        }
+
+        await c.env.kvCMS.put(`users/${userId}`, JSON.stringify(user), { metadata });
 
         return c.json<ApiSimpleResponse<any>>({ message: "OK" }, 201);
     } catch (error: unknown) {
@@ -99,25 +102,38 @@ app.post("/", async c => {
 });
 
 app.get("/:id", async c => {
-    const user = await c.env.kvCMS.get<User>(`users/${c.req.param("id")}`, "json");
+    const user = await c.env.kvCMS.getWithMetadata<User, UserMetadata>(`users/${c.req.param("id")}`, "json");
 
     if (!user) {
         return c.json<ApiError>({
             error: "User not found"
         }, 404);
     }
+
+    if (!user.metadata) {
+        return c.json<ApiError>({
+            error: "User metadata not found"
+        }, 404);
+    }
+
+    if (!user.value) {
+        return c.json<ApiError>({
+            error: "User value not found"
+        }, 404);
+    }
+
     return c.json<ApiRecordResponse<User>>({
-        id: user.id,
-        data: user,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt
+        id: c.req.param("id"),
+        data: user.value,
+        createdAt: user.metadata.createdAt,
+        updatedAt: user.metadata.updatedAt
     });
 });
 
 app.put("/:id", async c => {
     const body = await c.req.json<User>();
 
-    const oldUser = await c.env.kvCMS.get<User>(`users/${c.req.param("id")}`, "json");
+    const oldUser = await c.env.kvCMS.getWithMetadata<User, UserMetadata>(`users/${c.req.param("id")}`, "json");
 
     if (!oldUser) {
         return c.json<ApiError>({
@@ -125,26 +141,41 @@ app.put("/:id", async c => {
         }, 404);
     }
 
-    await c.env.kvCMS.put(`users/${c.req.param("id")}`, JSON.stringify({
+    if (!oldUser.metadata) {
+        return c.json<ApiError>({
+            error: "User metadata not found"
+        }, 404);
+    }
+
+    if (!oldUser.value) {
+        return c.json<ApiError>({
+            error: "User value not found"
+        }, 404);
+    }
+
+    const user: User = {
         id: c.req.param("id"),
         name: body.name,
         email: body.email,
-        salt: oldUser.salt,
-        password: oldUser.password,
+        salt: oldUser.value.salt,
+        password: oldUser.value.password,
         roles: body.roles,
-        createdAt: oldUser.createdAt,
-        updatedAt: new Date().toISOString()
-    }), {
-        metadata: {
-            email: body.email,
-            roles: body.roles
-        }
-    });
+    }
+
+    const metadata: UserMetadata = {
+        email: body.email,
+        roles: body.roles,
+        createdAt: oldUser.metadata.createdAt,
+        updatedAt: new Date().getTime()
+    }
+
+    await c.env.kvCMS.put(`users/${c.req.param("id")}`, JSON.stringify(user), { metadata });
 
     return c.json<ApiSimpleResponse<any>>({ message: "OK" });
 });
 
 app.delete("/:id", async c => {
+    // TODO: Delete all user's sessions
     await c.env.kvCMS.delete(`users/${c.req.param("id")}`);
 
     return c.json<ApiSimpleResponse<any>>({ message: "OK" });
