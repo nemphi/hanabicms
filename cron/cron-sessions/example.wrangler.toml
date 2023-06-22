@@ -1,9 +1,0 @@
-name = "cms"
-main = "src/index.ts"
-compatibility_date = "2022-12-10"
-
-[[d1_databases]]
-binding = "d1CMS"
-database_name = "..."
-database_id = "..."
-preview_database_id = "..."
