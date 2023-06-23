@@ -14,6 +14,7 @@ export type CollectionConfig<T extends CollectionFields> = {
     fields: T;
     // auth?: boolean;
     // external?: boolean;
+    unique: boolean;
     version?: number;
     access?: CollectionAccess;
     hooks?: {

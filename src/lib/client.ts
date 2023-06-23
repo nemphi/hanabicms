@@ -64,6 +64,9 @@ export class Collection<T extends CollectionFields> {
     constructor(private url: string, private name: string, private token: string, private collection: CollectionConfig<T>) { }
 
     async get(id: string): Promise<ApiRecordResponse<T>> {
+        if (this.collection.unique) {
+            id = "unique"
+        }
         const req = new Request(`${this.url}/data/${this.name}/${id}`, {
             headers: {
                 Authorization: `Bearer ${this.token}`,

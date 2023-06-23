@@ -163,7 +163,9 @@ app.get("/:slug", async c => {
 
 app.get("/:slug/:id", async c => {
     try {
-        const record = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
+        const collection = c.get("collection")
+        const recordId = collection?.unique ? "unique" : c.req.param("id");
+        const record = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${recordId}`, "json");
 
         if (!record) {
             return c.json<ApiError>({
@@ -216,7 +218,7 @@ app.post("/:slug", async c => {
 
         const now = new Date().getTime();
 
-        const recordId = nanoid();
+        const recordId = collection?.unique ? "unique" : nanoid();
         const slug = c.req.param("slug");
 
         const metadata: RecordMetadata = {
@@ -249,7 +251,10 @@ app.post("/:slug", async c => {
 app.put("/:slug/:id", async c => {
     let body = await c.req.json();
 
-    const oldRecord = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
+    const collection = c.get("collection");
+    const recordId = collection?.unique ? "unique" : c.req.param("id");
+
+    const oldRecord = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${recordId}`, "json");
 
     if (!oldRecord) {
         return c.json<ApiError>({
@@ -269,12 +274,10 @@ app.put("/:slug/:id", async c => {
         }, 404);
     }
 
-    const collection = c.get("collection");
-
     if (oldRecord.metadata.version < collection?.version!) {
         if (collection?.hooks?.newVersion) {
             body = await collection.hooks.newVersion({
-                id: c.req.param("id"),
+                id: recordId,
                 data: oldRecord.value,
                 createdAt: oldRecord.metadata.createdAt,
                 updatedAt: oldRecord.metadata.updatedAt
@@ -286,7 +289,7 @@ app.put("/:slug/:id", async c => {
         try {
 
             body = await collection.hooks.beforeUpdate({
-                id: c.req.param("id"),
+                id: recordId,
                 data: oldRecord.value,
                 createdAt: oldRecord.metadata.createdAt,
                 updatedAt: oldRecord.metadata.updatedAt
@@ -304,21 +307,21 @@ app.put("/:slug/:id", async c => {
     try {
         const now = new Date().getTime();
         const metadata: RecordMetadata = {
-            title: c.req.param("id"),
+            title: recordId,
             version: collection?.version ?? oldRecord.metadata.version,
             createdAt: oldRecord.metadata.createdAt,
             updatedAt: now,
         }
-        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify(body), { metadata });
+        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${recordId}`, JSON.stringify(body), { metadata });
 
         if (collection?.hooks?.afterUpdate) {
             await collection.hooks.afterUpdate({
-                id: c.req.param("id"),
+                id: recordId,
                 data: oldRecord.value,
                 createdAt: oldRecord.metadata.createdAt,
                 updatedAt: oldRecord.metadata.updatedAt
             }, {
-                id: c.req.param("id"),
+                id: recordId,
                 data: body,
                 createdAt: oldRecord.metadata.createdAt,
                 updatedAt: now
@@ -336,7 +339,10 @@ app.put("/:slug/:id", async c => {
 
 app.delete("/:slug/:id", async c => {
 
-    const oldRecord = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${c.req.param("id")}`, "json");
+    const collection = c.get("collection");
+    const recordId = collection?.unique ? "unique" : c.req.param("id");
+
+    const oldRecord = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${recordId}`, "json");
     if (!oldRecord) {
         return c.json<ApiError>({
             error: "Record not found"
@@ -355,11 +361,10 @@ app.delete("/:slug/:id", async c => {
         }, 404);
     }
 
-    const collection = c.get("collection");
     if (collection?.hooks?.beforeDelete) {
         try {
             await collection.hooks.beforeDelete({
-                id: c.req.param("id"),
+                id: recordId,
                 data: oldRecord.value,
                 createdAt: oldRecord.metadata.createdAt,
                 updatedAt: oldRecord.metadata.updatedAt
@@ -377,7 +382,7 @@ app.delete("/:slug/:id", async c => {
     const now = new Date().getTime();
 
     const metadata: RecordMetadata = {
-        title: c.req.param("id"),
+        title: recordId,
         version: collection?.version ?? oldRecord.metadata.version,
         createdAt: oldRecord.metadata.createdAt,
         updatedAt: oldRecord.metadata.updatedAt,
@@ -385,14 +390,14 @@ app.delete("/:slug/:id", async c => {
     }
 
     try {
-        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify(oldRecord.value), {
+        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${recordId}`, JSON.stringify(oldRecord.value), {
             expirationTtl: 1000 * 60 * 60 * 24 * 30, // 30 days
             metadata
         });
 
         if (collection?.hooks?.afterDelete) {
             await collection.hooks.afterDelete({
-                id: c.req.param("id"),
+                id: recordId,
                 data: oldRecord.value,
                 createdAt: oldRecord.metadata.createdAt,
                 updatedAt: oldRecord.metadata.updatedAt
