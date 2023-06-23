@@ -219,13 +219,14 @@ app.post("/:slug", async c => {
         const recordId = nanoid();
         const slug = c.req.param("slug");
 
-        await c.env.kvCMS.put(`records/${slug}/${recordId}`, JSON.stringify(body), {
-            metadata: {
-                title: recordId,
-                createdAt: now,
-                updatedAt: now,
-            } as RecordMetadata
-        });
+        const metadata: RecordMetadata = {
+            title: recordId,
+            version: collection?.version ?? 0,
+            createdAt: now,
+            updatedAt: now,
+        }
+
+        await c.env.kvCMS.put(`records/${slug}/${recordId}`, JSON.stringify(body), { metadata });
 
         if (collection?.hooks?.afterCreate) {
             await collection.hooks.afterCreate({
@@ -302,13 +303,13 @@ app.put("/:slug/:id", async c => {
 
     try {
         const now = new Date().getTime();
-        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify(body), {
-            metadata: {
-                title: c.req.param("id"),
-                createdAt: oldRecord.metadata.createdAt,
-                updatedAt: now,
-            } as RecordMetadata
-        });
+        const metadata: RecordMetadata = {
+            title: c.req.param("id"),
+            version: collection?.version ?? oldRecord.metadata.version,
+            createdAt: oldRecord.metadata.createdAt,
+            updatedAt: now,
+        }
+        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify(body), { metadata });
 
         if (collection?.hooks?.afterUpdate) {
             await collection.hooks.afterUpdate({
@@ -375,15 +376,18 @@ app.delete("/:slug/:id", async c => {
 
     const now = new Date().getTime();
 
+    const metadata: RecordMetadata = {
+        title: c.req.param("id"),
+        version: collection?.version ?? oldRecord.metadata.version,
+        createdAt: oldRecord.metadata.createdAt,
+        updatedAt: oldRecord.metadata.updatedAt,
+        deletedAt: now
+    }
+
     try {
         await c.env.kvCMS.put(`records/${c.req.param("slug")}/${c.req.param("id")}`, JSON.stringify(oldRecord.value), {
             expirationTtl: 1000 * 60 * 60 * 24 * 30, // 30 days
-            metadata: {
-                title: c.req.param("id"),
-                createdAt: oldRecord.metadata.createdAt,
-                updatedAt: oldRecord.metadata.updatedAt,
-                deletedAt: now
-            } as RecordMetadata
+            metadata
         });
 
         if (collection?.hooks?.afterDelete) {
