@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cache } from "hono/cache"
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import type { C } from ".";
 import { signedIn } from "./auth";
 import type { ApiError, ApiRecordResponse, ApiSimpleResponse } from "../lib/types";
@@ -74,9 +74,15 @@ app.post("/", async c => {
         // Upload file to r2CMS
         // @ts-ignore
         const file = body.get("file") as File;
-        const mediaId = nanoid();
+        const mediaId = ulid();
         const filename = `${mediaId}.${file.name.replace(/\s/g, "")}`;
         const r2File = await c.env.r2CMS.put(filename, await file.arrayBuffer())
+
+        if (!r2File) {
+            return c.json<ApiError>({
+                error: "Failed to upload file"
+            }, 500);
+        }
 
         const media: Media = {
             name: file.name,

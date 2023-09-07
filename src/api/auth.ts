@@ -1,5 +1,5 @@
 import { type Context, Hono, type Next } from "hono";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { compare } from "bcryptjs";
 import type { C } from ".";
 import type { User, UserMetadata } from "./users";
@@ -116,7 +116,7 @@ app.post("/signin", async c => {
         return c.json<ApiError>({ error: "Invalid password" }, 401);
     }
 
-    const token = nanoid(32);
+    const token = ulid();
 
     const now = new Date().getTime();
     const expiresAt = new Date(new Date().getTime() + 1000 * 60 * 60 * 24 * 7).getTime(); // 7 days

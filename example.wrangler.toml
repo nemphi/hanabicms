@@ -11,3 +11,8 @@ preview_bucket_name = "..."
 binding = "kvCMS"
 id = "..."
 preview_id = "..."
+
+[[d1_databases]]
+binding = "dbCMS"
+database_name = "..."
+database_id = "..."

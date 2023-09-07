@@ -34,6 +34,10 @@ export function collection<T extends CollectionFields>(config: CollectionConfig<
     return config;
 }
 
+export function extractCollectionFields<T extends CollectionFields>(config: CollectionConfig<T>): T {
+    return config.fields;
+}
+
 type CollectionRecord<T extends CollectionFields> = ApiRecordResponse<FieldValues<T>>
 
 

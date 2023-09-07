@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { C } from ".";
 import { ApiSimpleResponse } from "../lib/types";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { User, UserMetadata } from "./users";
 
 
@@ -20,7 +20,7 @@ app.get("/", async c => {
     }
 
     const user: User = {
-        id: nanoid(),
+        id: ulid(),
         name: "admin",
         email: "admin",
         salt: "63d84400bbfec879d8089ec7b5f044d49b2fe39b6486bd7b273cbbae26bfb3e85eb622f3b89ccef35ee90f5ea9393fbf6591951cf6d49231ce0bde55258a276e",

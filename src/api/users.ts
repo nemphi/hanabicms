@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import { hash } from "bcryptjs";
 import type { C } from ".";
 import { isAdmin } from "./auth";
@@ -63,7 +63,7 @@ app.post("/", async c => {
 
     try {
         const now = new Date().getTime();
-        const saltBase = new TextEncoder().encode(nanoid());
+        const saltBase = new TextEncoder().encode(ulid());
         const salt = await crypto.subtle.digest(
             {
                 name: 'SHA-512',
@@ -72,7 +72,7 @@ app.post("/", async c => {
         );
         const saltStr = new Uint8Array(salt).toString();
         const hashedPassword = await hash(`${body.password}.${saltStr}`, 10);
-        const userId = nanoid();
+        const userId = ulid();
 
         const user: User = {
             id: userId,

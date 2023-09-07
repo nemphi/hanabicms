@@ -13,6 +13,8 @@ type Env = {
 	r2CMS: R2Bucket;
 
 	kvCMS: KVNamespace;
+
+	dbCMS: D1Database;
 }
 
 type Variables = {

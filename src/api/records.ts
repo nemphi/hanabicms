@@ -1,5 +1,5 @@
 import { type Context, Hono, type Next } from "hono";
-import { nanoid } from "nanoid";
+import { ulid } from "ulidx";
 import type { C } from ".";
 import type { Session } from "./auth";
 import type { User } from "./users";
@@ -63,7 +63,6 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
 
     const token = c.req.header("Authorization")?.replace("Bearer ", "");
     if (!token) {
-        console.error("no token");
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
@@ -218,7 +217,7 @@ app.post("/:slug", async c => {
 
         const now = new Date().getTime();
 
-        const recordId = collection?.unique ? "unique" : nanoid();
+        const recordId = collection?.unique ? "unique" : ulid();
         const slug = c.req.param("slug");
 
         const metadata: RecordMetadata = {
