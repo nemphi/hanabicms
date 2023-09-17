@@ -34,25 +34,40 @@ export function collection<T extends CollectionFields>(config: CollectionConfig<
     return config;
 }
 
-export function extractCollectionFields<T extends CollectionFields>(config: CollectionConfig<T>): T {
-    return config.fields;
+type collectionType<T extends CollectionFields> = {
+    fields: T;
+    unique: boolean;
+}
+
+export type TypedCollections<T extends Record<string, CollectionConfig<CollectionFields>>> = {
+    [P in keyof T]: T[P] extends CollectionConfig<infer U> ? collectionType<U> : never;
+}
+
+export function typedCollections<T extends {
+    [P in keyof T]: T[P] extends CollectionConfig<infer U> ? CollectionConfig<U> : never;
+}>(collections: T): TypedCollections<T> {
+    const cols: Partial<TypedCollections<T>> = {};
+    Object.keys(collections).forEach((key) => {
+        const typedKey = key as keyof T;
+        cols[typedKey] = {
+            fields: collections[typedKey].fields,
+            unique: collections[typedKey].unique,
+        } as T[keyof T] extends CollectionConfig<infer U extends CollectionFields> ? collectionType<U> : never;
+    })
+    return cols as TypedCollections<T>;
 }
 
 type CollectionRecord<T extends CollectionFields> = ApiRecordResponse<FieldValues<T>>
 
 
-export type FieldValues<T extends CollectionFields, K extends keyof T = keyof T> =
-    {
-        [P in K as T[P] extends { required: true } ? never : P]?: T[P]["default"] | null;
-    } & {
-        [P in K as T[P] extends { required: false } ? never : P]: T[P]["default"];
-    };
+export type FieldValues<T extends CollectionFields> = {
+    [P in keyof T]: T[P]["required"] extends true ? T[P]["default"] : T[P]["default"] | null;
+}
 
 
 export type ConfigFieldTypes = ConfigFieldText |
     ConfigFieldNumber |
     ConfigFieldDate |
-    ConfigFieldDateTime |
     ConfigFieldList |
     ConfigFieldUpload;
 
@@ -84,14 +99,6 @@ export type ConfigFieldNumber = {
 export type ConfigFieldDate = {
     label: CollectionConfigFieldLabel;
     type: 'date';
-    required: boolean;
-    default: Date;
-    filter?: boolean;
-};
-
-export type ConfigFieldDateTime = {
-    label: CollectionConfigFieldLabel;
-    type: 'datetime';
     required: boolean;
     default: Date;
     filter?: boolean;

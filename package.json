@@ -17,9 +17,11 @@
     "test": "jest"
   },
   "dependencies": {
+    "@hono/zod-validator": "^0.1.8",
     "bcryptjs": "^2.4.3",
     "hono": "^3.5.7",
-    "ulidx": "^2.1.0"
+    "ulidx": "^2.1.0",
+    "zod": "^3.22.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20230904.0",

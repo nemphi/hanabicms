@@ -2,26 +2,22 @@ import { Hono } from "hono";
 import { cache } from "hono/cache"
 import { ulid } from "ulidx";
 import type { C } from ".";
-import { signedIn } from "./auth";
+import { isSignedIn } from "./auth";
 import type { ApiError, ApiRecordResponse, ApiSimpleResponse } from "../lib/types";
+import { zValidator } from "@hono/zod-validator";
+import * as z from "zod";
 
 export type Media = {
+    id: string;
+    userId: string;
     name: string;
     altText: string;
     contentType: string;
     size: number;
     path: string;
-    userId: string;
-};
-
-type MediaMetadata = {
-    name: string;
-    contentType: string;
-    size: number;
-    path: string;
     createdAt: number;
     updatedAt: number;
-}
+};
 
 export type UploadToken = {
     id: string;
@@ -32,86 +28,80 @@ export type UploadToken = {
 
 const app = new Hono<C>();
 
-app.use("*", signedIn);
+app.get("/",
+    isSignedIn,
+    zValidator("query", z.object({
+        cursor: z.string().optional(),
+        limit: z.string().optional(),
+    })),
+    async c => {
+        const query = c.req.valid("query");
 
-app.get("/", async c => {
-    const results = await c.env.kvCMS.list<MediaMetadata>({
-        prefix: "media/",
-        limit: 100
-    });
+        const results = await c.env.dbCMS.prepare("SELECT * FROM media WHERE id > ? LIMIT ?").
+            bind(
+                query.cursor ? query.cursor : "",
+                query.limit ? +query.limit : 10
+            ).
+            all<Media>();
 
-    if (results.list_complete) {
-        return c.json<ApiSimpleResponse<{
-            keys: typeof results.keys;
-            list_complete: true;
-        }>>({
-            data: {
-                keys: results.keys,
-                list_complete: true
-            }
-        })
-    }
-
-    return c.json<ApiSimpleResponse<{
-        keys: typeof results.keys;
-        list_complete: false;
-        cursor: string;
-    }>>({
-        data: {
-            keys: results.keys,
-            list_complete: false,
-            cursor: results.cursor
-        }
-    })
-});
-
-app.post("/", async c => {
-    const body = await c.req.formData();
-
-    try {
-        const now = new Date().getTime();
-
-        // Upload file to r2CMS
-        // @ts-ignore
-        const file = body.get("file") as File;
-        const mediaId = ulid();
-        const filename = `${mediaId}.${file.name.replace(/\s/g, "")}`;
-        const r2File = await c.env.r2CMS.put(filename, await file.arrayBuffer())
-
-        if (!r2File) {
-            return c.json<ApiError>({
-                error: "Failed to upload file"
+        if (!results.success) {
+            console.log(results.error);
+            return c.jsonT<ApiError>({
+                error: "Database error"
             }, 500);
         }
 
-        const media: Media = {
-            name: file.name,
-            altText: file.name,
-            contentType: file.type,
-            size: r2File.size,
-            path: r2File.key,
-            userId: c.get("user").id
+        return c.jsonT({
+            media: results.results,
+            cursor: results.results.length > 0 ? results.results[results.results.length - 1]?.id : null
+        })
+    });
+
+app.post("/",
+    isSignedIn,
+    async c => {
+        const body = await c.req.formData();
+
+        try {
+            const now = Date.now();
+
+            // Upload file to r2CMS
+            // @ts-ignore
+            const file = body.get("file") as File;
+            const mediaId = ulid();
+            const filename = `${mediaId}.${file.name.replace(/\s/g, "")}`;
+            const r2File = await c.env.r2CMS.put(filename, await file.arrayBuffer())
+
+            if (!r2File) {
+                return c.json<ApiError>({
+                    error: "Failed to upload file"
+                }, 500);
+            }
+
+            const media: Media = {
+                id: mediaId,
+                name: file.name,
+                altText: file.name,
+                contentType: file.type,
+                size: r2File.size,
+                path: r2File.key,
+                userId: c.get("user")!.id,
+                createdAt: now,
+                updatedAt: now,
+            }
+
+            await c.env.dbCMS.prepare("INSERT INTO media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").
+                bind(media.id, media.name, media.altText, media.contentType, media.size, media.path, media.userId, media.createdAt, media.updatedAt).
+                run();
+
+            return c.json<ApiSimpleResponse<any>>({ message: "OK" });
+        } catch (error) {
+            console.error(error);
+            return c.json<ApiError>({
+                error: error as string
+            }, 500);
         }
-
-        const metadata: MediaMetadata = {
-            name: file.name,
-            contentType: file.type,
-            size: r2File.size,
-            path: r2File.key,
-            createdAt: now,
-            updatedAt: now
-        }
-
-        await c.env.kvCMS.put(`media/${filename}`, JSON.stringify(media), { metadata })
-
-        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
-    } catch (error) {
-        console.error(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
+    });
 
 app.get("/:id", async c => {
     const media = await c.env.kvCMS.getWithMetadata<Media, MediaMetadata>(`media/${c.req.param("id")}`, "json");
@@ -172,7 +162,7 @@ app.put("/:id", async c => {
     const body = await c.req.json<Media>();
 
     try {
-        const now = new Date().getTime();
+        const now = Date.now();
         const media = await c.env.kvCMS.getWithMetadata<Media, MediaMetadata>(`media/${c.req.param("id")}`, "json");
 
         if (!media) {

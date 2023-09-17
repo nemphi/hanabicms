@@ -1,5 +1,5 @@
 export { Client } from "./lib/client";
 
-export { collection, extractCollectionFields } from "./lib/collections";
+export { collection, typedCollections } from "./lib/collections";
 
-export { default, router } from "./api";
+export { router } from "./api";

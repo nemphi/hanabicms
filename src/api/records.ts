@@ -5,10 +5,10 @@ import type { Session } from "./auth";
 import type { User } from "./users";
 import type { ApiError, ApiRecordResponse, ApiSimpleResponse } from "../lib/types";
 
-type Rec = Record<string, any>;
-
-export type RecordMetadata = {
-    title: string;
+export type Rec = {
+    id: string;
+    collection: string;
+    data: Record<string, any>;
     version: number;
     createdAt: number;
     updatedAt: number;
@@ -19,11 +19,6 @@ const app = new Hono<C>();
 
 const checkRecordAccess = async (c: Context<C>, next: Next) => {
     const collections = c.get("collections");
-
-    // If no collections are defined, allow access to everything
-    if (!collections) {
-        return await next();
-    }
 
     const collectionSlug = c.req.param("slug");
 
@@ -72,7 +67,9 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
-    const user = await c.env.kvCMS.get<User>(`users/${session.userId}`, "json");
+    const user = await c.env.dbCMS.prepare("SELECT * FROM users WHERE id = ?").
+        bind(session.userId).
+        first<User>();
 
     if (!user) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
@@ -80,38 +77,37 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
 
     c.set("user", user);
 
-    const userRoles = user.roles.split(",");
 
     // Allow if admin
-    if (userRoles.includes("admin")) {
+    if (user.roles.includes("admin")) {
         return await next();
     }
 
     switch (c.req.method.toUpperCase()) {
         case "GET":
             for (const role of collection.access?.read ?? []) {
-                if (userRoles.includes(role)) {
+                if (user.roles.includes(role)) {
                     return await next();
                 }
             }
             break;
         case "POST":
             for (const role of collection.access?.create ?? []) {
-                if (userRoles.includes(role)) {
+                if (user.roles.includes(role)) {
                     return await next();
                 }
             }
             break;
         case "PUT":
             for (const role of collection.access?.update ?? []) {
-                if (userRoles.includes(role)) {
+                if (user.roles.includes(role)) {
                     return await next();
                 }
             }
             break;
         case "DELETE":
             for (const role of collection.access?.delete ?? []) {
-                if (userRoles.includes(role)) {
+                if (user.roles.includes(role)) {
                     return await next();
                 }
             }
@@ -215,7 +211,7 @@ app.post("/:slug", async c => {
 
     try {
 
-        const now = new Date().getTime();
+        const now = Date.now();
 
         const recordId = collection?.unique ? "unique" : ulid();
         const slug = c.req.param("slug");
@@ -304,7 +300,7 @@ app.put("/:slug/:id", async c => {
     }
 
     try {
-        const now = new Date().getTime();
+        const now = Date.now();
         const metadata: RecordMetadata = {
             title: recordId,
             version: collection?.version ?? oldRecord.metadata.version,
@@ -378,7 +374,7 @@ app.delete("/:slug/:id", async c => {
 
     }
 
-    const now = new Date().getTime();
+    const now = Date.now();
 
     const metadata: RecordMetadata = {
         title: recordId,

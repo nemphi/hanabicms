@@ -1,14 +1,25 @@
 import { RecordMetadata } from "../api/records";
-import { type CollectionConfig, type CollectionFields, type FieldValues } from "./collections";
+import { type CollectionFields, type FieldValues } from "./collections";
 import type { ApiRecordResponse, ApiSimpleResponse } from "./types";
 
+type collections = {
+    [K: string]: {
+        fields: CollectionFields,
+        unique: boolean
+    }
+}
 
-export class Client<T extends { [K in keyof T]: T[K] extends { fields: CollectionFields } ? (T[K] & { fields: CollectionFields }) : never }> {
+
+export class Client<T extends collections> {
 
     constructor(private url: string, private token: string, private collections: T) { }
 
     collection<K extends keyof T>(name: K) {
-        return new Collection<FieldValues<Extract<T[K], { fields: CollectionFields }>["fields"]>>(this.url, name.toString(), this.token, this.collections[name]);
+        const collection = this.collections[name];
+        if (!collection) {
+            throw new Error(`Collection ${name.toString()} not found`);
+        }
+        return new Collection<T[K]["fields"]>(this.url, name.toString(), this.token, collection);
     }
 
     async signIn(email: string, password: string): Promise<boolean> {
@@ -61,9 +72,9 @@ export class Client<T extends { [K in keyof T]: T[K] extends { fields: Collectio
 
 export class Collection<T extends CollectionFields> {
 
-    constructor(private url: string, private name: string, private token: string, private collection: CollectionConfig<T>) { }
+    constructor(private url: string, private name: string, private token: string, private collection: { fields: T, unique: boolean }) { }
 
-    async get(id: string): Promise<ApiRecordResponse<T>> {
+    async get(id: string): Promise<ApiRecordResponse<FieldValues<T>>> {
         if (this.collection.unique) {
             id = "unique"
         }
@@ -89,7 +100,7 @@ export class Collection<T extends CollectionFields> {
         return res.json();
     }
 
-    async create(data: T): Promise<ApiSimpleResponse<T>> {
+    async create(data: FieldValues<T>): Promise<ApiSimpleResponse<FieldValues<T>>> {
 
         // Check if collections fields contain an upload field
         const hasUpload = Object.values(this.collection.fields).some((field) => field.type === "upload");
@@ -105,25 +116,27 @@ export class Collection<T extends CollectionFields> {
             body: JSON.stringify(data),
             headers: {
                 Authorization: `Bearer ${this.token}`,
+                "Content-Type": "application/json",
             },
         });
         const res = await fetch(req)
         return res.json();
     }
 
-    async update(id: string, data: T): Promise<ApiSimpleResponse<T>> {
+    async update(id: string, data: FieldValues<T>): Promise<ApiSimpleResponse<FieldValues<T>>> {
         const req = new Request(`${this.url}/data/${this.name}/${id}`, {
             method: "PUT",
             body: JSON.stringify(data),
             headers: {
                 Authorization: `Bearer ${this.token}`,
+                "Content-Type": "application/json",
             },
         });
         const res = await fetch(req)
         return res.json();
     }
 
-    async delete(id: string): Promise<ApiSimpleResponse<T>> {
+    async delete(id: string): Promise<ApiSimpleResponse<FieldValues<T>>> {
         const req = new Request(`${this.url}/data/${this.name}/${id}`, {
             method: "DELETE",
             headers: {

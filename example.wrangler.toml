@@ -1,5 +1,5 @@
 name = "..."
-main = "src/api/index.ts"
+main = "src/index.ts"
 compatibility_date = "2023-05-25"
 
 [[r2_buckets]]

@@ -1,9 +1,11 @@
 import { Hono } from "hono";
+import { zValidator } from "@hono/zod-validator";
+import * as z from "zod";
 import { ulid } from "ulidx";
 import { hash } from "bcryptjs";
 import type { C } from ".";
-import { isAdmin } from "./auth";
-import type { ApiError, ApiSimpleResponse, ApiRecordResponse } from "../lib/types";
+import { isAdmin, isSignedIn } from "./auth";
+import type { ApiError } from "../lib/types";
 
 export type User = {
     id: string;
@@ -11,175 +13,233 @@ export type User = {
     email: string;
     salt: string;
     password: string;
-    roles: string;
-}
-
-export type UserMetadata = {
-    email: string;
-    roles: string;
+    roles: string[];
+    config: Record<string, any>;
     createdAt: number;
     updatedAt: number;
 }
 
-
 const app = new Hono<C>();
 
-app.use("*", isAdmin);
+type listType = typeof listRoute;
+const listRoute = app.get("/",
+    isSignedIn,
+    isAdmin,
+    zValidator("query", z.object({
+        cursor: z.string().optional(),
+        limit: z.string().optional(),
+    })),
+    async c => {
+        const query = c.req.valid("query");
 
-app.get("/", async c => {
+        try {
+            const res = await c.env.dbCMS.prepare("SELECT * FROM users WHERE id > ? LIMIT ?").
+                bind(
+                    query.cursor ? query.cursor : "",
+                    query.limit ? +query.limit : 10
+                ).
+                all<User>();
 
-    const result = await c.env.kvCMS.list({
-        prefix: "users/",
-        limit: 100
-    });
-
-    if (result.list_complete) {
-        return c.json<ApiSimpleResponse<{
-            keys: typeof result.keys;
-            list_complete: true;
-        }>>({
-            data: {
-                keys: result.keys,
-                list_complete: true
+            if (!res.success) {
+                console.log(res.error);
+                return c.jsonT<ApiError>({
+                    error: "Database error"
+                }, 500);
             }
-        })
-    }
 
-    return c.json<ApiSimpleResponse<{
-        keys: typeof result.keys;
-        list_complete: boolean;
-        cursor: string;
-    }>>({
-        data: {
-            keys: result.keys,
-            list_complete: false,
-            cursor: result.cursor
+            return c.jsonT({
+                users: res.results
+            });
+        } catch (e) {
+            console.log(e);
+            return c.jsonT<ApiError>({
+                error: String(e)
+            }, 500);
         }
-    })
-});
-
-app.post("/", async c => {
-    const body = await c.req.json<User>();
-
-    try {
-        const now = new Date().getTime();
-        const saltBase = new TextEncoder().encode(ulid());
-        const salt = await crypto.subtle.digest(
-            {
-                name: 'SHA-512',
-            },
-            saltBase // The data you want to hash as an ArrayBuffer
-        );
-        const saltStr = new Uint8Array(salt).toString();
-        const hashedPassword = await hash(`${body.password}.${saltStr}`, 10);
-        const userId = ulid();
-
-        const user: User = {
-            id: userId,
-            name: body.name,
-            email: body.email,
-            salt: saltStr,
-            password: hashedPassword,
-            roles: body.roles,
-        }
-
-        const metadata: UserMetadata = {
-            email: body.email,
-            roles: body.roles,
-            createdAt: now,
-            updatedAt: now
-        }
-
-        await c.env.kvCMS.put(`users/${userId}`, JSON.stringify(user), { metadata });
-
-        return c.json<ApiSimpleResponse<any>>({ message: "OK" }, 201);
-    } catch (error: unknown) {
-        console.log(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
-
-app.get("/:id", async c => {
-    const user = await c.env.kvCMS.getWithMetadata<User, UserMetadata>(`users/${c.req.param("id")}`, "json");
-
-    if (!user) {
-        return c.json<ApiError>({
-            error: "User not found"
-        }, 404);
-    }
-
-    if (!user.metadata) {
-        return c.json<ApiError>({
-            error: "User metadata not found"
-        }, 404);
-    }
-
-    if (!user.value) {
-        return c.json<ApiError>({
-            error: "User value not found"
-        }, 404);
-    }
-
-    return c.json<ApiRecordResponse<User>>({
-        id: c.req.param("id"),
-        data: user.value,
-        createdAt: user.metadata.createdAt,
-        updatedAt: user.metadata.updatedAt
     });
-});
 
-app.put("/:id", async c => {
-    const body = await c.req.json<User>();
+type createType = typeof createRoute;
+const createRoute = app.post("/",
+    isSignedIn,
+    isAdmin,
+    zValidator("json", z.object({
+        name: z.string(),
+        email: z.string().email(),
+        password: z.string(),
+        roles: z.array(z.string()),
+    })),
+    async c => {
+        const data = c.req.valid("json");
 
-    const oldUser = await c.env.kvCMS.getWithMetadata<User, UserMetadata>(`users/${c.req.param("id")}`, "json");
+        try {
+            const now = Date.now();
+            const saltBase = new TextEncoder().encode(ulid());
+            const salt = await crypto.subtle.digest(
+                {
+                    name: 'SHA-512',
+                },
+                saltBase // The data you want to hash as an ArrayBuffer
+            );
+            const saltStr = new Uint8Array(salt).toString();
+            const hashedPassword = await hash(`${data.password}.${saltStr}`, 10);
+            const userId = ulid();
 
-    if (!oldUser) {
-        return c.json<ApiError>({
-            error: "User not found"
-        }, 404);
-    }
 
-    if (!oldUser.metadata) {
-        return c.json<ApiError>({
-            error: "User metadata not found"
-        }, 404);
-    }
+            const res = await c.env.dbCMS.prepare(
+                `INSERT INTO users (id, name, email, salt, password, roles, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, json(?), ?, ?)`
+            ).
+                bind(userId, data.name, data.email, saltStr, hashedPassword, data.roles, now, now).
+                run<User>();
 
-    if (!oldUser.value) {
-        return c.json<ApiError>({
-            error: "User value not found"
-        }, 404);
-    }
+            if (!res.success) {
+                console.log(res.error);
+                return c.jsonT<ApiError>({
+                    error: "Database error"
+                }, 500);
+            }
 
-    const user: User = {
-        id: c.req.param("id"),
-        name: body.name,
-        email: body.email,
-        salt: oldUser.value.salt,
-        password: oldUser.value.password,
-        roles: body.roles,
-    }
+            return c.jsonT({ message: "OK" }, 201);
+        } catch (e) {
+            console.log(e);
+            return c.jsonT<ApiError>({
+                error: String(e)
+            }, 500);
+        }
+    });
 
-    const metadata: UserMetadata = {
-        email: body.email,
-        roles: body.roles,
-        createdAt: oldUser.metadata.createdAt,
-        updatedAt: new Date().getTime()
-    }
+type getType = typeof getRoute;
+const getRoute = app.get("/:id",
+    isSignedIn,
+    zValidator("param", z.object({
+        id: z.string(),
+    })),
+    async c => {
+        const { id: userId } = c.req.valid("param");
 
-    await c.env.kvCMS.put(`users/${c.req.param("id")}`, JSON.stringify(user), { metadata });
+        try {
+            const user = await c.env.dbCMS.prepare("SELECT * FROM users WHERE id = ?").
+                bind(userId).
+                first<User>();
 
-    return c.json<ApiSimpleResponse<any>>({ message: "OK" });
-});
+            if (!user) {
+                return c.jsonT<ApiError>({
+                    error: "User not found"
+                }, 404);
+            }
 
-app.delete("/:id", async c => {
-    // TODO: Delete all user's sessions
-    await c.env.kvCMS.delete(`users/${c.req.param("id")}`);
+            return c.jsonT({
+                user
+            });
+        } catch (e) {
+            console.log(e);
+            return c.jsonT<ApiError>({
+                error: String(e)
+            }, 500);
+        }
+    });
 
-    return c.json<ApiSimpleResponse<any>>({ message: "OK" });
-});
+type updateType = typeof updateRoute;
+const updateRoute = app.put("/:id",
+    isSignedIn,
+    isAdmin,
+    zValidator("param", z.object({
+        id: z.string(),
+    })),
+    zValidator("json", z.object({
+        name: z.string(),
+        email: z.string().email(),
+        roles: z.array(z.string()),
+        config: z.record(z.any()).optional(),
+        password: z.string().optional(),
+    })),
+    async c => {
+        const { id: userId } = c.req.valid("param");
+        const data = c.req.valid("json");
 
+        const now = Date.now();
+        try {
+            const res = await c.env.dbCMS.prepare(
+                `UPDATE users SET name = ?, email = ?, roles = json(?), config = json(?), updatedAt = ? WHERE id = ?`
+            ).
+                bind(data.name, data.email, data.roles, data.config ?? {}, now, userId).
+                run<User>();
+
+            if (!res.success) {
+                console.log(res.error);
+                return c.jsonT<ApiError>({
+                    error: "Database error"
+                }, 500);
+            }
+
+            if (data.password) {
+                const saltBase = new TextEncoder().encode(ulid());
+                const salt = await crypto.subtle.digest(
+                    {
+                        name: 'SHA-512',
+                    },
+                    saltBase // The data you want to hash as an ArrayBuffer
+                );
+                const saltStr = new Uint8Array(salt).toString();
+                const hashedPassword = await hash(`${data.password}.${saltStr}`, 10);
+
+                const res = await c.env.dbCMS.prepare(
+                    `UPDATE users SET password = ?, salt = ? updatedAt = ? WHERE id = ?`
+                ).
+                    bind(hashedPassword, saltStr, now, userId).
+                    run<User>();
+
+                if (!res.success) {
+                    console.log(res.error);
+                    return c.jsonT<ApiError>({
+                        error: "Database error"
+                    }, 500);
+                }
+            }
+
+            return c.jsonT({ message: "OK" });
+        } catch (e) {
+            console.log(e);
+            return c.jsonT<ApiError>({
+                error: String(e)
+            }, 500);
+        }
+    });
+
+type deleteType = typeof deleteRoute;
+const deleteRoute = app.delete("/:id",
+    isSignedIn,
+    isAdmin,
+    zValidator("param", z.object({
+        id: z.string(),
+    })),
+    async c => {
+        // TODO: Delete all user's sessions
+        const { id: userId } = c.req.valid("param");
+
+        try {
+            const res = await c.env.dbCMS.prepare(
+                `DELETE FROM users WHERE id = ?`
+            ).
+                bind(userId).
+                run<User>();
+
+            if (!res.success) {
+                console.log(res.error);
+                return c.jsonT<ApiError>({
+                    error: "Database error"
+                }, 500);
+            }
+
+            return c.jsonT({ message: "OK" });
+        } catch (e) {
+            console.log(e);
+            return c.jsonT<ApiError>({
+                error: String(e)
+            }, 500);
+        }
+    });
+
+
+export type types = listType | createType | getType | updateType | deleteType;
 
 export default app;
