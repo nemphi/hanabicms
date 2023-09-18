@@ -103,67 +103,43 @@ app.post("/",
         }
     });
 
-app.get("/:id", async c => {
-    const media = await c.env.kvCMS.getWithMetadata<Media, MediaMetadata>(`media/${c.req.param("id")}`, "json");
+app.get("/:id",
+    isSignedIn,
+    zValidator("param", z.object({
+        id: z.string(),
+    })),
+    async c => {
+        const { id: mediaId } = c.req.valid("param");
 
-    if (!media) {
-        return c.json<ApiError>({
-            error: "Media not found"
-        }, 404);
-    }
+        const media = await c.env.dbCMS.prepare("SELECT * FROM media WHERE id = ?").
+            bind(mediaId).
+            first<Media>();
 
-    if (!media.metadata) {
-        return c.json<ApiError>({
-            error: "Media metadata not found"
-        }, 404);
-    }
+        if (!media) {
+            return c.json<ApiError>({
+                error: "Media not found"
+            }, 404);
+        }
 
-    if (!media.value) {
-        return c.json<ApiError>({
-            error: "Media value not found"
-        }, 404);
-    }
-
-    return c.json<ApiRecordResponse<Media>>({
-        id: c.req.param("id"),
-        data: media.value,
-        createdAt: media.metadata.createdAt,
-        updatedAt: media.metadata.updatedAt
+        return c.jsonT({
+            media
+        });
     });
-});
 
-app.get("/:id/file", cache({
-    cacheName: 'media',
-    cacheControl: 'max-age=3600',
-}), async c => {
-    const media = await c.env.kvCMS.get<Media>(`media/${c.req.param("id")}`, "json");
+app.get("/:id/file",
+    cache({
+        cacheName: 'media',
+        cacheControl: 'max-age=3600',
+    }),
+    zValidator("param", z.object({
+        id: z.string(),
+    })),
+    async c => {
+        const { id: mediaId } = c.req.valid("param");
 
-    if (!media) {
-        return c.json<ApiError>({
-            error: "Media not found"
-        }, 404);
-    }
-
-    const r2File = await c.env.r2CMS.get(media.path);
-
-    if (!r2File) {
-        return c.json<ApiError>({
-            error: "File not found"
-        }, 404);
-    }
-
-    return c.newResponse(await r2File.arrayBuffer(), 200, {
-        "Content-Disposition": `inline; filename="${media.name}"`,
-        "Content-Type": media.contentType,
-    })
-});
-
-app.put("/:id", async c => {
-    const body = await c.req.json<Media>();
-
-    try {
-        const now = Date.now();
-        const media = await c.env.kvCMS.getWithMetadata<Media, MediaMetadata>(`media/${c.req.param("id")}`, "json");
+        const media = await c.env.dbCMS.prepare("SELECT * FROM media WHERE id = ?").
+            bind(mediaId).
+            first<Media>();
 
         if (!media) {
             return c.json<ApiError>({
@@ -171,77 +147,94 @@ app.put("/:id", async c => {
             }, 404);
         }
 
-        if (!media.metadata) {
+        const r2File = await c.env.r2CMS.get(media.path);
+
+        if (!r2File) {
             return c.json<ApiError>({
-                error: "Media metadata not found"
+                error: "File not found"
             }, 404);
         }
 
-        if (!media.value) {
+        return c.newResponse(await r2File.arrayBuffer(), 200, {
+            "Content-Disposition": `inline; filename="${media.name}"`,
+            "Content-Type": media.contentType,
+        })
+    });
+
+app.put("/:id",
+    isSignedIn,
+    zValidator("json", z.object({
+        name: z.string(),
+        altText: z.string(),
+    })),
+    async c => {
+        const body = await c.req.valid("json");
+
+        try {
+            const now = Date.now();
+            const media = await c.env.dbCMS.prepare("SELECT * FROM media WHERE id = ?").
+                bind(c.req.param("id")).
+                first<Media>();
+
+            if (!media) {
+                return c.json<ApiError>({
+                    error: "Media not found"
+                }, 404);
+            }
+
+            const newMedia: Media = {
+                ...media,
+                name: body.name,
+                altText: body.altText,
+                updatedAt: now,
+            }
+
+
+            await c.env.dbCMS.prepare("UPDATE media SET name = ?, altText = ?, updatedAt = ? WHERE id = ?").
+                bind(newMedia.name, newMedia.altText, newMedia.updatedAt, newMedia.id).
+                run();
+
+            return c.jsonT({ message: "OK" });
+        } catch (error) {
+            console.error(error);
             return c.json<ApiError>({
-                error: "Media value not found"
-            }, 404);
+                error: error as string
+            }, 500);
         }
+    });
 
-        const newMedia: Media = {
-            ...media.value,
-            name: body.name,
-            altText: body.altText,
-        }
+app.delete("/:id",
+    isSignedIn,
+    zValidator("param", z.object({
+        id: z.string(),
+    })),
+    async c => {
+        try {
 
-        const metadata: MediaMetadata = {
-            name: body.name,
-            contentType: media.metadata.contentType,
-            size: media.metadata.size,
-            path: media.value.path,
-            createdAt: media.metadata.createdAt,
-            updatedAt: now
-        }
+            const { id: mediaId } = c.req.valid("param");
 
-        await c.env.kvCMS.put(`media/${c.req.param("id")}`, JSON.stringify(newMedia), { metadata })
+            const media = await c.env.dbCMS.prepare("SELECT * FROM media WHERE id = ?").
+                bind(mediaId).
+                first<Media>();
 
-        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
-    } catch (error) {
-        console.error(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
+            if (!media) {
+                return c.json<ApiError>({
+                    error: "Media not found"
+                }, 404);
+            }
 
-app.delete("/:id", async c => {
-    try {
+            await c.env.r2CMS.delete(media.path);
+            await c.env.dbCMS.prepare("DELETE FROM media WHERE id = ?").
+                bind(mediaId).
+                run();
 
-        const media = await c.env.kvCMS.getWithMetadata<Media, MediaMetadata>(`media/${c.req.param("id")}`, "json");
-
-        if (!media) {
+            return c.jsonT({ message: "OK" });
+        } catch (error) {
+            console.error(error);
             return c.json<ApiError>({
-                error: "Media not found"
-            }, 404);
+                error: error as string
+            }, 500);
         }
-
-        if (!media.metadata) {
-            return c.json<ApiError>({
-                error: "Media metadata not found"
-            }, 404);
-        }
-
-        if (!media.value) {
-            return c.json<ApiError>({
-                error: "Media value not found"
-            }, 404);
-        }
-
-        await c.env.r2CMS.delete(media.value.path);
-        await c.env.kvCMS.delete(`media/${c.req.param("id")}`);
-
-        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
-    } catch (error) {
-        console.error(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
+    });
 
 export default app;

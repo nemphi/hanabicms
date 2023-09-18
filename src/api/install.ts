@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { C } from ".";
-import { ApiSimpleResponse } from "../lib/types";
 import { ulid } from "ulidx";
 import { User } from "./users";
 
@@ -9,13 +8,11 @@ const app = new Hono<C>();
 
 app.get("/", async c => {
 
-    const installed = await c.env.kvCMS.get("config/installed", "text")
+    const installed = await c.env.dbCMS.prepare("SELECT * FROM users LIMIT 1").first<User>();
 
     if (installed) {
-        return c.json<ApiSimpleResponse<any>>({
-            data: {
-                installed: true
-            }
+        return c.jsonT({
+            installed: true
         }, 404)
     }
 
@@ -37,12 +34,8 @@ app.get("/", async c => {
         bind(user.id, user.name, user.email, user.salt, user.password, user.roles, user.config, user.createdAt, user.updatedAt).
         run();
 
-    await c.env.kvCMS.put("config/installed", "true")
-
     return c.jsonT({
-        data: {
-            completed: true
-        }
+        completed: true
     })
 })
 

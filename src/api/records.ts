@@ -4,6 +4,8 @@ import type { C } from ".";
 import type { Session } from "./auth";
 import type { User } from "./users";
 import type { ApiError, ApiRecordResponse, ApiSimpleResponse } from "../lib/types";
+import { zValidator } from "@hono/zod-validator";
+import * as z from "zod";
 
 export type Rec = {
     id: string;
@@ -61,7 +63,9 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
     }
 
-    const session = await c.env.kvCMS.get<Session>(`sessions/${token}`, "json");
+    const session = await c.env.dbCMS.prepare("SELECT * FROM sessions WHERE token = ?").
+        bind(token).
+        first<Session>();
 
     if (!session) {
         return c.json<ApiError>({ error: "Unauthorized" }, 401);
@@ -117,295 +121,308 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
     return c.json<ApiError>({ error: "Unauthorized" }, 401);
 }
 
-app.use("*", checkRecordAccess);
 
-app.get("/:slug", async c => {
-    try {
+app.get("/:slug",
+    checkRecordAccess,
+    zValidator("param", z.object({
+        slug: z.string(),
+    })),
+    zValidator("query", z.object({
+        cursor: z.string().optional(),
+        limit: z.string().optional(),
+    })),
+    async c => {
+        try {
 
-        const result = await c.env.kvCMS.list<RecordMetadata>({
-            prefix: `records/${c.req.param("slug")}/`,
-            limit: Number(c.req.query("limit")) ?? 50,
-            cursor: c.req.query("cursor")
-        })
+            const { slug } = c.req.valid("param");
+            const query = c.req.valid("query");
+
+            const result = await c.env.dbCMS.prepare("SELECT * FROM records WHERE collection = ? AND id > ? ORDER BY id ASC LIMIT ?").
+                bind(
+                    slug,
+                    query.cursor ? query.cursor : "",
+                    query.limit ? +query.limit : 10
+                ).
+                all<Rec>();
+
+            if (!result.success) {
+                return c.json<ApiError>({
+                    error: "Database error"
+                }, 500);
+            }
 
 
-        if (result.list_complete) {
-            return c.json<ApiSimpleResponse<{
-                keys: typeof result.keys;
-            }>>({
-                data: {
-                    keys: result.keys
-                }
+            return c.jsonT({
+                records: result.results,
             });
+        } catch (error) {
+            console.log(error);
+            return c.json<ApiError>({
+                error: error as string
+            }, 500);
+        }
+    });
+
+app.get("/:slug/:id",
+    checkRecordAccess,
+    zValidator("param", z.object({
+        slug: z.string(),
+        id: z.string(),
+    })),
+    async c => {
+        try {
+            const { slug, id } = c.req.valid("param");
+
+            const collection = c.get("collection")
+            const recordId = collection?.unique ? "unique" : id;
+            const record = await c.env.dbCMS.prepare("SELECT * FROM records WHERE collection = ? AND id = ?").
+                bind(slug, recordId).
+                first<Rec>();
+
+            if (!record) {
+                return c.json<ApiError>({
+                    error: "Record not found"
+                }, 404);
+            }
+
+            if (record.deletedAt) {
+                return c.json<ApiError>({
+                    error: "Record deleted"
+                }, 404);
+            }
+
+            return c.jsonT({
+                record,
+            });
+
+        } catch (error) {
+            console.log(error);
+            return c.json<ApiError>({
+                error: error as string
+            }, 500);
+        }
+    });
+
+app.post("/:slug",
+    checkRecordAccess,
+    zValidator("param", z.object({
+        slug: z.string(),
+    })),
+    zValidator("json", z.object({
+        data: z.record(z.any()),
+    })),
+    async c => {
+        const { slug } = c.req.valid("param");
+        let body = await c.req.valid("json");
+
+        const collection = c.get("collection");
+        if (collection?.hooks?.beforeCreate) {
+            body.data = await collection.hooks.beforeCreate(body.data);
         }
 
-        return c.json<ApiSimpleResponse<{
-            keys: typeof result.keys;
-            cursor: string;
-        }>>({
-            data: {
-                keys: result.keys,
-                cursor: result.cursor
+        try {
+
+            const now = Date.now();
+
+            const recordId = collection?.unique ? "unique" : ulid();
+
+            const rec: Rec = {
+                id: recordId,
+                collection: slug,
+                data: body.data,
+                version: collection?.version ?? 0,
+                createdAt: now,
+                updatedAt: now,
             }
-        });
-    } catch (error) {
-        console.log(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
 
-app.get("/:slug/:id", async c => {
-    try {
-        const collection = c.get("collection")
-        const recordId = collection?.unique ? "unique" : c.req.param("id");
-        const record = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${recordId}`, "json");
+            await c.env.dbCMS.prepare("INSERT INTO records (id, collection, data, version, createdAt, updatedAt) VALUES (?, ?, json(?), ?, ?, ?)").
+                bind(rec.id, rec.collection, rec.data, rec.version, rec.createdAt, rec.updatedAt).
+                run();
 
-        if (!record) {
+            if (collection?.hooks?.afterCreate) {
+                await collection.hooks.afterCreate({
+                    id: recordId,
+                    createdAt: now,
+                    updatedAt: now,
+                    data: body
+                });
+            }
+
+            return c.jsonT({ message: "OK" });
+        } catch (error) {
+            console.log(error);
+            return c.json<ApiError>({
+                error: error as string
+            }, 500);
+        }
+    });
+
+app.put("/:slug/:id",
+    checkRecordAccess,
+    zValidator("param", z.object({
+        slug: z.string(),
+        id: z.string(),
+    })),
+    zValidator("json", z.object({
+        data: z.record(z.any()),
+    })),
+    async c => {
+        const { slug, id } = c.req.valid("param");
+        let body = await c.req.valid("json");
+
+        const collection = c.get("collection");
+        const recordId = collection?.unique ? "unique" : id;
+
+        const oldRecord = await c.env.dbCMS.prepare("SELECT * FROM records WHERE collection = ? AND id = ?").
+            bind(slug, recordId).
+            first<Rec>();
+
+        if (!oldRecord) {
             return c.json<ApiError>({
                 error: "Record not found"
             }, 404);
         }
 
-        if (!record.metadata) {
-            return c.json<ApiError>({
-                error: "Record metadata not found"
-            }, 404);
+        if (oldRecord.version < collection?.version!) {
+            if (collection?.hooks?.newVersion) {
+                body.data = await collection.hooks.newVersion({
+                    id: recordId,
+                    data: oldRecord.data,
+                    createdAt: oldRecord.createdAt,
+                    updatedAt: oldRecord.updatedAt
+                }, oldRecord.version, collection.version!);
+            }
         }
 
-        if (!record.value) {
-            return c.json<ApiError>({
-                error: "Record value not found"
-            }, 404);
+        if (collection?.hooks?.beforeUpdate) {
+            try {
+
+                body.data = await collection.hooks.beforeUpdate({
+                    id: recordId,
+                    data: oldRecord.data,
+                    createdAt: oldRecord.createdAt,
+                    updatedAt: oldRecord.updatedAt
+                }, body);
+
+            } catch (error) {
+                console.log(error);
+                return c.json<ApiError>({
+                    error: error as string
+                }, 500);
+            }
+
         }
 
-        if (record.metadata.deletedAt) {
-            return c.json<ApiError>({
-                error: "Record deleted"
-            }, 404);
-        }
-
-        return c.json<ApiRecordResponse<any>>({
-            id: c.req.param("id"),
-            data: record.value,
-            createdAt: record.metadata.createdAt,
-            updatedAt: record.metadata.updatedAt
-        });
-
-    } catch (error) {
-        console.log(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
-
-app.post("/:slug", async c => {
-    let body = await c.req.json();
-
-    const collection = c.get("collection");
-    if (collection?.hooks?.beforeCreate) {
-        body = await collection.hooks.beforeCreate(body);
-    }
-
-    try {
-
-        const now = Date.now();
-
-        const recordId = collection?.unique ? "unique" : ulid();
-        const slug = c.req.param("slug");
-
-        const metadata: RecordMetadata = {
-            title: recordId,
-            version: collection?.version ?? 0,
-            createdAt: now,
-            updatedAt: now,
-        }
-
-        await c.env.kvCMS.put(`records/${slug}/${recordId}`, JSON.stringify(body), { metadata });
-
-        if (collection?.hooks?.afterCreate) {
-            await collection.hooks.afterCreate({
+        try {
+            const now = Date.now();
+            const rec: Rec = {
                 id: recordId,
-                createdAt: now,
+                collection: slug,
+                data: body.data,
+                version: collection?.version ?? oldRecord.version,
+                createdAt: oldRecord.createdAt,
                 updatedAt: now,
-                data: body
-            });
-        }
+            }
+            await c.env.dbCMS.prepare("UPDATE records SET data = json(?), version = ?, updatedAt = ? WHERE collection = ? AND id = ?").
+                bind(rec.data, rec.version, rec.updatedAt, rec.collection, rec.id).
+                run();
 
-        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
-    } catch (error) {
-        console.log(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
+            if (collection?.hooks?.afterUpdate) {
+                await collection.hooks.afterUpdate({
+                    id: recordId,
+                    data: oldRecord.data,
+                    createdAt: oldRecord.createdAt,
+                    updatedAt: oldRecord.updatedAt
+                }, {
+                    id: recordId,
+                    data: body,
+                    createdAt: oldRecord.createdAt,
+                    updatedAt: now
+                });
+            }
 
-app.put("/:slug/:id", async c => {
-    let body = await c.req.json();
-
-    const collection = c.get("collection");
-    const recordId = collection?.unique ? "unique" : c.req.param("id");
-
-    const oldRecord = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${recordId}`, "json");
-
-    if (!oldRecord) {
-        return c.json<ApiError>({
-            error: "Record not found"
-        }, 404);
-    }
-
-    if (!oldRecord.value) {
-        return c.json<ApiError>({
-            error: "Record value not found"
-        }, 404);
-    }
-
-    if (!oldRecord.metadata) {
-        return c.json<ApiError>({
-            error: "Record metadata not found"
-        }, 404);
-    }
-
-    if (oldRecord.metadata.version < collection?.version!) {
-        if (collection?.hooks?.newVersion) {
-            body = await collection.hooks.newVersion({
-                id: recordId,
-                data: oldRecord.value,
-                createdAt: oldRecord.metadata.createdAt,
-                updatedAt: oldRecord.metadata.updatedAt
-            }, oldRecord.metadata.version, collection.version!);
-        }
-    }
-
-    if (collection?.hooks?.beforeUpdate) {
-        try {
-
-            body = await collection.hooks.beforeUpdate({
-                id: recordId,
-                data: oldRecord.value,
-                createdAt: oldRecord.metadata.createdAt,
-                updatedAt: oldRecord.metadata.updatedAt
-            }, body);
-
+            return c.jsonT({ message: "OK" });
         } catch (error) {
-            console.log(error);
+            console.error(error);
             return c.json<ApiError>({
                 error: error as string
             }, 500);
         }
+    });
 
-    }
+app.delete("/:slug/:id",
+    checkRecordAccess,
+    zValidator("param", z.object({
+        slug: z.string(),
+        id: z.string(),
+    })),
+    async c => {
 
-    try {
+        const { slug, id } = c.req.valid("param");
+
+        const collection = c.get("collection");
+        const recordId = collection?.unique ? "unique" : id;
+
+        const oldRecord = await c.env.dbCMS.prepare("SELECT * FROM records WHERE collection = ? AND id = ?").
+            bind(slug, recordId).
+            first<Rec>();
+        if (!oldRecord) {
+            return c.json<ApiError>({
+                error: "Record not found"
+            }, 404);
+        }
+
+        if (collection?.hooks?.beforeDelete) {
+            try {
+                await collection.hooks.beforeDelete({
+                    id: recordId,
+                    data: oldRecord.data,
+                    createdAt: oldRecord.createdAt,
+                    updatedAt: oldRecord.updatedAt
+                });
+
+            } catch (error) {
+                console.log(error);
+                return c.json<ApiError>({
+                    error: error as string
+                }, 500);
+            }
+
+        }
+
         const now = Date.now();
-        const metadata: RecordMetadata = {
-            title: recordId,
-            version: collection?.version ?? oldRecord.metadata.version,
-            createdAt: oldRecord.metadata.createdAt,
-            updatedAt: now,
-        }
-        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${recordId}`, JSON.stringify(body), { metadata });
 
-        if (collection?.hooks?.afterUpdate) {
-            await collection.hooks.afterUpdate({
-                id: recordId,
-                data: oldRecord.value,
-                createdAt: oldRecord.metadata.createdAt,
-                updatedAt: oldRecord.metadata.updatedAt
-            }, {
-                id: recordId,
-                data: body,
-                createdAt: oldRecord.metadata.createdAt,
-                updatedAt: now
-            });
+        const rec: Rec = {
+            id: recordId,
+            collection: slug,
+            data: oldRecord.data,
+            version: collection?.version ?? oldRecord.version,
+            createdAt: oldRecord.createdAt,
+            updatedAt: oldRecord.updatedAt,
+            deletedAt: now
         }
 
-        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
-    } catch (error) {
-        console.error(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
-
-app.delete("/:slug/:id", async c => {
-
-    const collection = c.get("collection");
-    const recordId = collection?.unique ? "unique" : c.req.param("id");
-
-    const oldRecord = await c.env.kvCMS.getWithMetadata<Rec, RecordMetadata>(`records/${c.req.param("slug")}/${recordId}`, "json");
-    if (!oldRecord) {
-        return c.json<ApiError>({
-            error: "Record not found"
-        }, 404);
-    }
-
-    if (!oldRecord.value) {
-        return c.json<ApiError>({
-            error: "Record value not found"
-        }, 404);
-    }
-
-    if (!oldRecord.metadata) {
-        return c.json<ApiError>({
-            error: "Record metadata not found"
-        }, 404);
-    }
-
-    if (collection?.hooks?.beforeDelete) {
         try {
-            await collection.hooks.beforeDelete({
-                id: recordId,
-                data: oldRecord.value,
-                createdAt: oldRecord.metadata.createdAt,
-                updatedAt: oldRecord.metadata.updatedAt
-            });
+            await c.env.dbCMS.prepare("UPDATE records SET deletedAt = ? WHERE collection = ? AND id = ?").
+                bind(rec.deletedAt, rec.collection, rec.id).
+                run();
 
+            if (collection?.hooks?.afterDelete) {
+                await collection.hooks.afterDelete({
+                    id: recordId,
+                    data: oldRecord.data,
+                    createdAt: oldRecord.createdAt,
+                    updatedAt: oldRecord.updatedAt
+                });
+            }
+
+            return c.jsonT({ message: "OK" });
         } catch (error) {
-            console.log(error);
+            console.error(error);
             return c.json<ApiError>({
                 error: error as string
             }, 500);
         }
-
-    }
-
-    const now = Date.now();
-
-    const metadata: RecordMetadata = {
-        title: recordId,
-        version: collection?.version ?? oldRecord.metadata.version,
-        createdAt: oldRecord.metadata.createdAt,
-        updatedAt: oldRecord.metadata.updatedAt,
-        deletedAt: now
-    }
-
-    try {
-        await c.env.kvCMS.put(`records/${c.req.param("slug")}/${recordId}`, JSON.stringify(oldRecord.value), {
-            expirationTtl: 1000 * 60 * 60 * 24 * 30, // 30 days
-            metadata
-        });
-
-        if (collection?.hooks?.afterDelete) {
-            await collection.hooks.afterDelete({
-                id: recordId,
-                data: oldRecord.value,
-                createdAt: oldRecord.metadata.createdAt,
-                updatedAt: oldRecord.metadata.updatedAt
-            });
-        }
-
-        return c.json<ApiSimpleResponse<any>>({ message: "OK" });
-    } catch (error) {
-        console.error(error);
-        return c.json<ApiError>({
-            error: error as string
-        }, 500);
-    }
-});
+    });
 
 export default app;
