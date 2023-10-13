@@ -1,13 +1,13 @@
-import { type Context, Hono, type Next } from "hono";
+import { Hono, MiddlewareHandler } from "hono";
 import { ulid } from "ulidx";
 import { compare } from "bcryptjs";
 import type { C } from ".";
 import type { User } from "./users";
-import type { ApiError, ApiSimpleResponse } from "../lib/types";
 import * as z from "zod";
 import { zValidator } from "@hono/zod-validator";
+import { HTTPException } from "hono/http-exception";
 
-const app = new Hono<C>();
+const app = new Hono<C, {}, "/auth">();
 
 export type Session = {
     id: string;
@@ -18,18 +18,18 @@ export type Session = {
     updatedAt: number;
 }
 
-export const isSignedIn = async (c: Context<C>, next: Next) => {
+export const isSignedIn: MiddlewareHandler<C> = async (c, next) => {
     const token = c.req.header("Authorization")?.replace("Bearer ", "");
     if (!token) {
         console.error("no token");
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
     const session = await c.env.dbCMS.prepare("SELECT * FROM sessions WHERE token = ?").
         bind(token).
         first<Session>();
 
     if (!session) {
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
 
     const user = await c.env.dbCMS.prepare("SELECT * FROM users WHERE id = ?").
@@ -37,7 +37,7 @@ export const isSignedIn = async (c: Context<C>, next: Next) => {
         first<User>();
 
     if (!user) {
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
 
     c.set("user", user);
@@ -45,21 +45,22 @@ export const isSignedIn = async (c: Context<C>, next: Next) => {
     await next();
 }
 
-export const isAdmin = async (c: Context<C>, next: Next) => {
+export const isAdmin: MiddlewareHandler<C> = async (c, next) => {
     const user = c.get("user");
 
     if (!user) {
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
 
     if (!user.roles.includes("admin")) {
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
 
     await next();
 }
 
-app.post("/signin",
+type signInType = typeof signIn;
+const signIn = app.post("/signin",
     zValidator("json", z.object({
         email: z.string().email(),
         password: z.string(),
@@ -72,13 +73,13 @@ app.post("/signin",
             first<User>();
 
         if (!user) {
-            return c.json<ApiError>({ error: "User not found" }, 404);
+            throw new HTTPException(404, { message: "User not found" });
         }
 
         const match = await compare(`${data.password}.${user.salt}`, user.password);
 
         if (!match) {
-            return c.json<ApiError>({ error: "Invalid password" }, 401);
+            throw new HTTPException(401, { message: "Invalid password" });
         }
 
         const token = ulid();
@@ -100,25 +101,28 @@ app.post("/signin",
             bind(session.id, session.userId, session.token, session.expiresAt, session.createdAt, session.updatedAt).
             run();
 
-        return c.json<ApiSimpleResponse<any>>({ message: "OK" }, {
+        return c.jsonT({ message: "OK" }, {
             headers: {
                 "X-Auth-Token": token
             }
         });
     });
 
-app.post("/signout", async c => {
+
+type signOutType = typeof signOut;
+const signOut = app.post("/signout", async c => {
     const token = c.req.header("Authorization")?.replace("Bearer ", "");
 
     if (!token) {
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
 
     await c.env.dbCMS.prepare("DELETE FROM sessions WHERE token = ?").
         bind(token).
         run();
 
-    return c.json<ApiSimpleResponse<any>>({ message: "Signed out" });
+    return c.jsonT({ message: "Signed out" });
 });
 
+export type authType = signInType | signOutType;
 export default app;

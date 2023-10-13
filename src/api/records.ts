@@ -1,33 +1,34 @@
-import { type Context, Hono, type Next } from "hono";
+import { Hono, MiddlewareHandler } from "hono";
 import { ulid } from "ulidx";
 import type { C } from ".";
 import type { Session } from "./auth";
 import type { User } from "./users";
-import type { ApiError, ApiRecordResponse, ApiSimpleResponse } from "../lib/types";
 import { zValidator } from "@hono/zod-validator";
 import * as z from "zod";
+import { HTTPException } from "hono/http-exception";
 
-export type Rec = {
+export type Rec<T = Record<string, any>> = {
     id: string;
     collection: string;
-    data: Record<string, any>;
+    data: T;
     version: number;
     createdAt: number;
     updatedAt: number;
     deletedAt?: number;
 }
 
-const app = new Hono<C>();
+const app = new Hono<C, {}, "/data">();
 
-const checkRecordAccess = async (c: Context<C>, next: Next) => {
+const checkRecordAccess: MiddlewareHandler<C> = async (c, next) => {
     const collections = c.get("collections");
 
-    const collectionSlug = c.req.param("slug");
+    // @ts-expect-error
+    const collectionSlug = c.req.param("slug") as string;
 
     const collection = collections[collectionSlug];
 
     if (!collection) {
-        return c.json<ApiError>({ error: "Not found" }, 404);
+        throw new HTTPException(404, { message: "Not found" });
     }
 
     c.set("collection", collection);
@@ -60,7 +61,7 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
 
     const token = c.req.header("Authorization")?.replace("Bearer ", "");
     if (!token) {
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
 
     const session = await c.env.dbCMS.prepare("SELECT * FROM sessions WHERE token = ?").
@@ -68,7 +69,7 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
         first<Session>();
 
     if (!session) {
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
 
     const user = await c.env.dbCMS.prepare("SELECT * FROM users WHERE id = ?").
@@ -76,7 +77,7 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
         first<User>();
 
     if (!user) {
-        return c.json<ApiError>({ error: "Unauthorized" }, 401);
+        throw new HTTPException(401, { message: "Unauthorized" });
     }
 
     c.set("user", user);
@@ -118,11 +119,11 @@ const checkRecordAccess = async (c: Context<C>, next: Next) => {
             break;
     }
 
-    return c.json<ApiError>({ error: "Unauthorized" }, 401);
+    throw new HTTPException(401, { message: "Unauthorized" });
 }
 
-
-app.get("/:slug",
+type listRecordType = typeof listRecord;
+const listRecord = app.get("/:slug",
     checkRecordAccess,
     zValidator("param", z.object({
         slug: z.string(),
@@ -132,78 +133,58 @@ app.get("/:slug",
         limit: z.string().optional(),
     })),
     async c => {
-        try {
+        const { slug } = c.req.valid("param");
+        const query = c.req.valid("query");
 
-            const { slug } = c.req.valid("param");
-            const query = c.req.valid("query");
+        const result = await c.env.dbCMS.prepare("SELECT * FROM records WHERE collection = ? AND id > ? ORDER BY id ASC LIMIT ?").
+            bind(
+                slug,
+                query.cursor ? query.cursor : "",
+                query.limit ? +query.limit : 10
+            ).
+            all<Rec>();
 
-            const result = await c.env.dbCMS.prepare("SELECT * FROM records WHERE collection = ? AND id > ? ORDER BY id ASC LIMIT ?").
-                bind(
-                    slug,
-                    query.cursor ? query.cursor : "",
-                    query.limit ? +query.limit : 10
-                ).
-                all<Rec>();
-
-            if (!result.success) {
-                return c.json<ApiError>({
-                    error: "Database error"
-                }, 500);
-            }
-
-
-            return c.jsonT({
-                records: result.results,
-            });
-        } catch (error) {
-            console.log(error);
-            return c.json<ApiError>({
-                error: error as string
-            }, 500);
+        if (!result.success) {
+            throw new HTTPException(500, { message: "Database error" })
         }
+
+
+        return c.jsonT({
+            records: result.results,
+        });
     });
 
-app.get("/:slug/:id",
+type getRecordType = typeof getRecord;
+const getRecord = app.get("/:slug/:id",
     checkRecordAccess,
     zValidator("param", z.object({
         slug: z.string(),
         id: z.string(),
     })),
     async c => {
-        try {
-            const { slug, id } = c.req.valid("param");
+        const { slug, id } = c.req.valid("param");
 
-            const collection = c.get("collection")
-            const recordId = collection?.unique ? "unique" : id;
-            const record = await c.env.dbCMS.prepare("SELECT * FROM records WHERE collection = ? AND id = ?").
-                bind(slug, recordId).
-                first<Rec>();
+        const collection = c.get("collection")
+        const recordId = collection?.unique ? "unique" : id;
+        const record = await c.env.dbCMS.prepare("SELECT * FROM records WHERE collection = ? AND id = ?").
+            bind(slug, recordId).
+            first<Rec>();
 
-            if (!record) {
-                return c.json<ApiError>({
-                    error: "Record not found"
-                }, 404);
-            }
-
-            if (record.deletedAt) {
-                return c.json<ApiError>({
-                    error: "Record deleted"
-                }, 404);
-            }
-
-            return c.jsonT({
-                record,
-            });
-
-        } catch (error) {
-            console.log(error);
-            return c.json<ApiError>({
-                error: error as string
-            }, 500);
+        if (!record) {
+            throw new HTTPException(404, { message: "Record not found" });
         }
+
+        if (record.deletedAt) {
+            throw new HTTPException(404, { message: "Record deleted" });
+        }
+
+        return c.jsonT({
+            record,
+        });
     });
 
-app.post("/:slug",
+type createRecordType = typeof createRecord;
+const createRecord = app.post("/:slug",
     checkRecordAccess,
     zValidator("param", z.object({
         slug: z.string(),
@@ -220,44 +201,32 @@ app.post("/:slug",
             body.data = await collection.hooks.beforeCreate(body.data);
         }
 
-        try {
+        const now = Date.now();
 
-            const now = Date.now();
+        const recordId = collection?.unique ? "unique" : ulid();
 
-            const recordId = collection?.unique ? "unique" : ulid();
-
-            const rec: Rec = {
-                id: recordId,
-                collection: slug,
-                data: body.data,
-                version: collection?.version ?? 0,
-                createdAt: now,
-                updatedAt: now,
-            }
-
-            await c.env.dbCMS.prepare("INSERT INTO records (id, collection, data, version, createdAt, updatedAt) VALUES (?, ?, json(?), ?, ?, ?)").
-                bind(rec.id, rec.collection, rec.data, rec.version, rec.createdAt, rec.updatedAt).
-                run();
-
-            if (collection?.hooks?.afterCreate) {
-                await collection.hooks.afterCreate({
-                    id: recordId,
-                    createdAt: now,
-                    updatedAt: now,
-                    data: body
-                });
-            }
-
-            return c.jsonT({ message: "OK" });
-        } catch (error) {
-            console.log(error);
-            return c.json<ApiError>({
-                error: error as string
-            }, 500);
+        const rec: Rec = {
+            id: recordId,
+            collection: slug,
+            data: body.data,
+            version: collection?.version ?? 0,
+            createdAt: now,
+            updatedAt: now,
         }
+
+        await c.env.dbCMS.prepare("INSERT INTO records (id, collection, data, version, createdAt, updatedAt) VALUES (?, ?, json(?), ?, ?, ?)").
+            bind(rec.id, rec.collection, rec.data, rec.version, rec.createdAt, rec.updatedAt).
+            run();
+
+        if (collection?.hooks?.afterCreate) {
+            await collection.hooks.afterCreate(rec);
+        }
+
+        return c.jsonT({ message: "OK" });
     });
 
-app.put("/:slug/:id",
+type updateRecordType = typeof updateRecord;
+const updateRecord = app.put("/:slug/:id",
     checkRecordAccess,
     zValidator("param", z.object({
         slug: z.string(),
@@ -278,79 +247,41 @@ app.put("/:slug/:id",
             first<Rec>();
 
         if (!oldRecord) {
-            return c.json<ApiError>({
-                error: "Record not found"
-            }, 404);
+            throw new HTTPException(404, { message: "Record not found" });
         }
 
         if (oldRecord.version < collection?.version!) {
             if (collection?.hooks?.newVersion) {
-                body.data = await collection.hooks.newVersion({
-                    id: recordId,
-                    data: oldRecord.data,
-                    createdAt: oldRecord.createdAt,
-                    updatedAt: oldRecord.updatedAt
-                }, oldRecord.version, collection.version!);
+                body.data = await collection.hooks.newVersion(oldRecord, oldRecord.version, collection.version!);
             }
         }
 
         if (collection?.hooks?.beforeUpdate) {
-            try {
-
-                body.data = await collection.hooks.beforeUpdate({
-                    id: recordId,
-                    data: oldRecord.data,
-                    createdAt: oldRecord.createdAt,
-                    updatedAt: oldRecord.updatedAt
-                }, body);
-
-            } catch (error) {
-                console.log(error);
-                return c.json<ApiError>({
-                    error: error as string
-                }, 500);
-            }
-
+            body.data = await collection.hooks.beforeUpdate(oldRecord, body);
         }
 
-        try {
-            const now = Date.now();
-            const rec: Rec = {
-                id: recordId,
-                collection: slug,
-                data: body.data,
-                version: collection?.version ?? oldRecord.version,
-                createdAt: oldRecord.createdAt,
-                updatedAt: now,
-            }
-            await c.env.dbCMS.prepare("UPDATE records SET data = json(?), version = ?, updatedAt = ? WHERE collection = ? AND id = ?").
-                bind(rec.data, rec.version, rec.updatedAt, rec.collection, rec.id).
-                run();
-
-            if (collection?.hooks?.afterUpdate) {
-                await collection.hooks.afterUpdate({
-                    id: recordId,
-                    data: oldRecord.data,
-                    createdAt: oldRecord.createdAt,
-                    updatedAt: oldRecord.updatedAt
-                }, {
-                    id: recordId,
-                    data: body,
-                    createdAt: oldRecord.createdAt,
-                    updatedAt: now
-                });
-            }
-
-            return c.jsonT({ message: "OK" });
-        } catch (error) {
-            console.error(error);
-            return c.json<ApiError>({
-                error: error as string
-            }, 500);
+        const now = Date.now();
+        const rec: Rec = {
+            id: recordId,
+            collection: slug,
+            data: body.data,
+            version: collection?.version ?? oldRecord.version,
+            createdAt: oldRecord.createdAt,
+            updatedAt: now,
         }
+        await c.env.dbCMS.prepare("UPDATE records SET data = json(?), version = ?, updatedAt = ? WHERE collection = ? AND id = ?").
+            bind(rec.data, rec.version, rec.updatedAt, rec.collection, rec.id).
+            run();
+
+        if (collection?.hooks?.afterUpdate) {
+            await collection.hooks.afterUpdate(oldRecord, rec);
+        }
+
+        return c.jsonT({ message: "OK" });
     });
 
-app.delete("/:slug/:id",
+type deleteRecordType = typeof deleteRecord;
+const deleteRecord = app.delete("/:slug/:id",
     checkRecordAccess,
     zValidator("param", z.object({
         slug: z.string(),
@@ -367,27 +298,11 @@ app.delete("/:slug/:id",
             bind(slug, recordId).
             first<Rec>();
         if (!oldRecord) {
-            return c.json<ApiError>({
-                error: "Record not found"
-            }, 404);
+            throw new HTTPException(404, { message: "Record not found" });
         }
 
         if (collection?.hooks?.beforeDelete) {
-            try {
-                await collection.hooks.beforeDelete({
-                    id: recordId,
-                    data: oldRecord.data,
-                    createdAt: oldRecord.createdAt,
-                    updatedAt: oldRecord.updatedAt
-                });
-
-            } catch (error) {
-                console.log(error);
-                return c.json<ApiError>({
-                    error: error as string
-                }, 500);
-            }
-
+            await collection.hooks.beforeDelete(oldRecord);
         }
 
         const now = Date.now();
@@ -402,27 +317,16 @@ app.delete("/:slug/:id",
             deletedAt: now
         }
 
-        try {
-            await c.env.dbCMS.prepare("UPDATE records SET deletedAt = ? WHERE collection = ? AND id = ?").
-                bind(rec.deletedAt, rec.collection, rec.id).
-                run();
+        await c.env.dbCMS.prepare("UPDATE records SET deletedAt = ? WHERE collection = ? AND id = ?").
+            bind(rec.deletedAt, rec.collection, rec.id).
+            run();
 
-            if (collection?.hooks?.afterDelete) {
-                await collection.hooks.afterDelete({
-                    id: recordId,
-                    data: oldRecord.data,
-                    createdAt: oldRecord.createdAt,
-                    updatedAt: oldRecord.updatedAt
-                });
-            }
-
-            return c.jsonT({ message: "OK" });
-        } catch (error) {
-            console.error(error);
-            return c.json<ApiError>({
-                error: error as string
-            }, 500);
+        if (collection?.hooks?.afterDelete) {
+            await collection.hooks.afterDelete(oldRecord);
         }
+
+        return c.jsonT({ message: "OK" });
     });
 
+export type recordType = listRecordType | getRecordType | createRecordType | updateRecordType | deleteRecordType;
 export default app;

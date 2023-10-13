@@ -1,4 +1,4 @@
-import type { ApiRecordResponse } from "./types";
+import { Rec } from "../api/records";
 
 export type CollectionFields = { [key: string]: ConfigFieldTypes };
 
@@ -19,14 +19,14 @@ export type CollectionConfig<T extends CollectionFields> = {
     access?: CollectionAccess;
     hooks?: {
         beforeCreate?: (data: FieldValues<T>) => Promise<FieldValues<T>>;
-        afterCreate?: (data: CollectionRecord<T>) => Promise<void>;
+        afterCreate?: (data: Rec<T>) => Promise<void>;
         // beforeRead?: () => Promise<void>;
         // afterRead?: (data: FieldValues<T>) => Promise<FieldValues<T>>;
-        beforeUpdate?: (old: CollectionRecord<T>, updated: FieldValues<T>) => Promise<FieldValues<T>>;
-        afterUpdate?: (old: CollectionRecord<T>, updated: CollectionRecord<T>) => Promise<void>;
-        beforeDelete?: (data: CollectionRecord<T>) => Promise<void>;
-        afterDelete?: (data: CollectionRecord<T>) => Promise<void>;
-        newVersion?: (data: CollectionRecord<T>, oldVersion: number, newVersion: number) => Promise<FieldValues<T>>;
+        beforeUpdate?: (old: Rec<T>, updated: FieldValues<T>) => Promise<FieldValues<T>>;
+        afterUpdate?: (old: Rec<T>, updated: Rec<T>) => Promise<void>;
+        beforeDelete?: (data: Rec<T>) => Promise<void>;
+        afterDelete?: (data: Rec<T>) => Promise<void>;
+        newVersion?: (oldData: Rec<T>, oldVersion: number, newVersion: number) => Promise<FieldValues<T>>;
     }
 }
 
@@ -56,9 +56,6 @@ export function typedCollections<T extends {
     })
     return cols as TypedCollections<T>;
 }
-
-type CollectionRecord<T extends CollectionFields> = ApiRecordResponse<FieldValues<T>>
-
 
 export type FieldValues<T extends CollectionFields> = {
     [P in keyof T]: T[P]["required"] extends true ? T[P]["default"] : T[P]["default"] | null;

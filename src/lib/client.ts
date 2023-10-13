@@ -1,6 +1,6 @@
-import { RecordMetadata } from "../api/records";
+import { AppType } from "../api";
 import { type CollectionFields, type FieldValues } from "./collections";
-import type { ApiRecordResponse, ApiSimpleResponse } from "./types";
+import { hc } from "hono/client";
 
 type collections = {
     [K: string]: {
@@ -12,27 +12,34 @@ type collections = {
 
 export class Client<T extends collections> {
 
-    constructor(private url: string, private token: string, private collections: T) { }
+    private client: ReturnType<typeof hc<AppType>>;
+
+    constructor(private url: string, token: string, private collections: T) {
+        this.client = hc<AppType>(url, {
+            headers: {
+                Authorization: `Bearer ${token}`
+            }
+        });
+    }
 
     collection<K extends keyof T>(name: K) {
         const collection = this.collections[name];
         if (!collection) {
             throw new Error(`Collection ${name.toString()} not found`);
         }
-        return new Collection<T[K]["fields"]>(this.url, name.toString(), this.token, collection);
+        return new Collection<T[K]["fields"]>(this.client, name.toString(), collection);
     }
 
     async signIn(email: string, password: string): Promise<boolean> {
         try {
-            const res = await fetch(`${this.url}/auth/signin`, {
-                method: "POST",
-                body: JSON.stringify({ email, password }),
-                headers: {
-                    "Content-Type": "application/json",
-                },
+            const res = await this.client.auth.signin.$post({
+                json: {
+                    email,
+                    password
+                }
             });
 
-            if (res.status !== 200) {
+            if (!res.ok) {
                 return false;
             }
 
@@ -42,7 +49,11 @@ export class Client<T extends collections> {
                 return false;
             }
 
-            this.token = token;
+            this.client = hc<AppType>(this.url, {
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            })
             return true;
         } catch (e) {
             return false;
@@ -51,18 +62,12 @@ export class Client<T extends collections> {
 
     async signOut(): Promise<boolean> {
         try {
-            const res = await fetch(`${this.url}/auth/signout`, {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${this.token}`,
-                },
-            });
+            const res = await this.client.auth.signout.$post();
 
             if (res.status !== 200) {
                 return false;
             }
 
-            this.token = "";
             return true;
         } catch (e) {
             return false;
@@ -72,78 +77,135 @@ export class Client<T extends collections> {
 
 export class Collection<T extends CollectionFields> {
 
-    constructor(private url: string, private name: string, private token: string, private collection: { fields: T, unique: boolean }) { }
+    constructor(private client: ReturnType<typeof hc<AppType>>, private name: string, private collection: { fields: T, unique: boolean }) { }
 
-    async get(id: string): Promise<ApiRecordResponse<FieldValues<T>>> {
+    async get(id: string) {
         if (this.collection.unique) {
             id = "unique"
         }
-        const req = new Request(`${this.url}/data/${this.name}/${id}`, {
-            headers: {
-                Authorization: `Bearer ${this.token}`,
-            },
+        const res = await this.client.data[":slug"][":id"].$get({
+            param: {
+                slug: this.name,
+                id: id
+            }
         });
-        const res = await fetch(req);
-        return res.json();
+        if (!res.ok) {
+            return {
+                data: null,
+                error: new Error(await res.text())
+            };
+        }
+        const data = await res.json();
+        return {
+            data: {
+                ...data.record,
+                data: data.record.data as FieldValues<T>
+            },
+            error: null
+        }
     }
 
-    async list(): Promise<ApiSimpleResponse<{
-        keys: KVNamespaceListResult<RecordMetadata>,
-        cursor?: string,
-    }>> {
-        const req = new Request(`${this.url}/data/${this.name}`, {
-            headers: {
-                Authorization: `Bearer ${this.token}`,
+    async list(cursor?: string, limit?: number) {
+        const res = await this.client.data[":slug"].$get({
+            param: {
+                slug: this.name,
             },
+            query: {
+                cursor,
+                limit: limit?.toString()
+            }
         });
-        const res = await fetch(req);
-        return res.json();
+        if (!res.ok) {
+            return {
+                data: null,
+                error: new Error(await res.text())
+            };
+        }
+        const data = await res.json();
+        return {
+            data: data.records.map(r => ({
+                ...r,
+                data: r.data as FieldValues<T>
+            })),
+            error: null
+        }
     }
 
-    async create(data: FieldValues<T>): Promise<ApiSimpleResponse<FieldValues<T>>> {
+    async create(data: FieldValues<T>) {
 
         // Check if collections fields contain an upload field
-        const hasUpload = Object.values(this.collection.fields).some((field) => field.type === "upload");
+        const hasUpload = Object.values(this.collection.fields).filter((field) => field.type === "upload");
 
         // If there is an upload field, we need to upload the file first
-        if (hasUpload) {
+        if (hasUpload.length > 0) {
             const formData = new FormData();
 
         }
 
-        const req = new Request(`${this.url}/data/${this.name}`, {
-            method: "POST",
-            body: JSON.stringify(data),
-            headers: {
-                Authorization: `Bearer ${this.token}`,
-                "Content-Type": "application/json",
+        const res = await this.client.data[":slug"].$post({
+            param: {
+                slug: this.name,
             },
+            json: {
+                data
+            }
         });
-        const res = await fetch(req)
-        return res.json();
+        if (!res.ok) {
+            return {
+                data: null,
+                error: new Error(await res.text())
+            };
+        }
+        return {
+            data: {
+                success: true
+            },
+            error: null
+        }
     }
 
-    async update(id: string, data: FieldValues<T>): Promise<ApiSimpleResponse<FieldValues<T>>> {
-        const req = new Request(`${this.url}/data/${this.name}/${id}`, {
-            method: "PUT",
-            body: JSON.stringify(data),
-            headers: {
-                Authorization: `Bearer ${this.token}`,
-                "Content-Type": "application/json",
+    async update(id: string, data: FieldValues<T>) {
+        const res = await this.client.data[":slug"][":id"].$put({
+            param: {
+                slug: this.name,
+                id: id,
             },
+            json: {
+                data
+            }
         });
-        const res = await fetch(req)
-        return res.json();
+        if (!res.ok) {
+            return {
+                data: null,
+                error: new Error(await res.text())
+            };
+        }
+        return {
+            data: {
+                success: true
+            },
+            error: null
+        }
     }
 
-    async delete(id: string): Promise<ApiSimpleResponse<FieldValues<T>>> {
-        const req = new Request(`${this.url}/data/${this.name}/${id}`, {
-            method: "DELETE",
-            headers: {
-                Authorization: `Bearer ${this.token}`,
+    async delete(id: string) {
+        const res = await this.client.data[":slug"][":id"].$delete({
+            param: {
+                slug: this.name,
+                id: id,
             },
         });
-        const res = await fetch(req)
-        return res.json();
+        if (!res.ok) {
+            return {
+                data: null,
+                error: new Error(await res.text())
+            };
+        }
+        return {
+            data: {
+                success: true
+            },
+            error: null
+        }
     }
 }
