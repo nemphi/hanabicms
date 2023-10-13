@@ -5,7 +5,7 @@
 <a href="https://www.npmjs.com/package/hanabicms" rel="nofollow"><img src="https://img.shields.io/npm/dw/hanabicms.svg" alt="npm"></a>
 <a href="https://www.npmjs.com/package/hanabicms" rel="nofollow"><img src="https://img.shields.io/github/stars/hanabicms" alt="stars"></a>
 
-This is an end-to-end fully-types edge-cms heavily inspired by [@payloadcms](https://github.com/payloadcms/payload). It's a fully hosted CMS that runs on Cloudflare's edge network.
+This is an end-to-end fully-typed edge-cms heavily inspired by [@payloadcms](https://github.com/payloadcms/payload). It's a fully hosted CMS that runs on Cloudflare's edge network.
 
 ## Status
 
