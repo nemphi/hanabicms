@@ -1,9 +1,9 @@
-# Nemphi CMS
+# HanabiCMS
 
 <a href="https://twitter.com/shixzie" rel="nofollow"><img src="https://img.shields.io/badge/created%20by-@shixzie-4BBAAB.svg" alt="Created by Juan Alvarez"></a>
-<a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/nemphi/cms" alt="License"></a>
-<a href="https://www.npmjs.com/package/@nemphi/cms" rel="nofollow"><img src="https://img.shields.io/npm/dw/@nemphi/cms.svg" alt="npm"></a>
-<a href="https://www.npmjs.com/package/@nemphi/cms" rel="nofollow"><img src="https://img.shields.io/github/stars/nemphi/cms" alt="stars"></a>
+<a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/hanabicms" alt="License"></a>
+<a href="https://www.npmjs.com/package/hanabicms" rel="nofollow"><img src="https://img.shields.io/npm/dw/hanabicms.svg" alt="npm"></a>
+<a href="https://www.npmjs.com/package/hanabicms" rel="nofollow"><img src="https://img.shields.io/github/stars/hanabicms" alt="stars"></a>
 
 This is an end-to-end fully-types edge-cms heavily inspired by [@payloadcms](https://github.com/payloadcms/payload). It's a fully hosted CMS that runs on Cloudflare's edge network.
 
@@ -11,7 +11,7 @@ This is an end-to-end fully-types edge-cms heavily inspired by [@payloadcms](htt
 
 This project is currently in ⚠️ **alpha** ⚠️. It's not ready for production use.
 
-D1 (The database we use) is also in alpha stage, so it's not ready for production use either.
+D1 (The database we use) is in beta stage, so it's not ready for production use either.
 
 ## Why?
 
@@ -28,7 +28,7 @@ The edge has two meanings, edge (location) and edge (runtime). This cms uses **b
 We make use of the following Cloudflare products:
 
 * [Workers](https://www.cloudflare.com/products/workers/)
-* [Workers KV](https://www.cloudflare.com/products/workers-kv/)
+* [D1 Database](https://www.cloudflare.com/products/d1/)
 * [R2 Storage](https://www.cloudflare.com/products/r2/)
 
 ## Requirements
@@ -47,8 +47,11 @@ This means deploying a Cloudflare worker and accesing it via the API.
 To do this simply clone the repo and deploy your worker.
 
 ```bash
-git clone github.com/nemphi/cms
-cd cms
+# Still deciding what is the best way to distribute updates
+# Ignore the following steps, this is WIP
+
+git clone github.com/nemphi/hanabicms
+cd hanabicms
 cp wrangler.example.toml wrangler.toml
 
 # edit wrangler.toml and add your bindings info
@@ -61,11 +64,14 @@ npx wrangler deploy
 
 Since we operate in a edge-runtime environment, you can include the cms in your server-side app code and call the API directly (as a function call).
 
-**Note: For this to work you would need to deploy your app with [Cloudflare Pages](https://pages.cloudflare.com/)**
+**Note: For this to work you would need to deploy your app with [Cloudflare Pages](https://pages.cloudflare.com/) and add the corresponding bindings manually in the Cloudflare Dashboard.**
 
 ```bash
+# Still deciding what is the best way to distribute updates
+# Ignore the following steps, this is WIP
+
 cd YOUR_APP
-npm install @nemphi/cms
+npm install hanabicms
 ```
 
 And in your server code
@@ -73,7 +79,7 @@ And in your server code
 ```ts
 // collections.ts
 
-import { collection } from "@nemphi/cms"
+import { collection } from "hanabicms"
 
 const collections = {
     contactForm: collection({
@@ -117,7 +123,7 @@ export default collections
 // server.ts
 
 // ...
-import { router } from "@nemphi/cms"
+import { router } from "hanabicms"
 import collections from "./collections"
 
 // /api is the path to your cms router
@@ -132,7 +138,7 @@ export function handleRequest(request: Request): Response {
 
 ///////////////////////////////
 
-// Next.js example
+// Next.js example hosted on Cloudflare Pages
 // app/api/[...path]/route.ts
 export function GET(req: Request) {
     return cms.fetch(req, process.env)
@@ -155,7 +161,7 @@ export function DELETE(req: Request) {
 // component.ts
 
 // ...
-import { Client } from "@nemphi/cms"
+import { Client } from "hanabicms"
 import collections from "./collections"
 
 // /api is the path to your cms router
@@ -167,5 +173,4 @@ const forms = await cmsClient.collection("contactForm").list()
 
 ## Admin UI
 
-We are currently building an admin UI for this CMS, but for now you can use the API/SDK directly.
-
+The admin UI is beign built on top of [HTMX](https://htmx.org/), this ensures the cms is framework-agnostic and can be deployed alongside any codebase.

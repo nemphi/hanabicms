@@ -1,10 +1,10 @@
 {
-  "name": "@nemphi/cms",
+  "name": "hanabicms",
   "version": "0.0.1",
   "author": "Juan Alvarez <juan@nemphi.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nemphi/cms"
+    "url": "git+https://github.com/nemphi/hanabicms.git"
   },
   "main": "build/index.js",
   "private": false,
@@ -34,9 +34,10 @@
     "wrangler": "^3.1.0"
   },
   "files": [
-    "/build"
+    "/build",
+    "/migrations"
   ],
   "bugs": {
-    "url": "https://github.com/nemphi/cms/issues"
+    "url": "https://github.com/nemphi/hanabicms/issues"
   }
 }
