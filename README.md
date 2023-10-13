@@ -1,7 +1,7 @@
 # HanabiCMS
 
 <a href="https://twitter.com/shixzie" rel="nofollow"><img src="https://img.shields.io/badge/created%20by-@shixzie-4BBAAB.svg" alt="Created by Juan Alvarez"></a>
-<a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/hanabicms" alt="License"></a>
+<a href="https://opensource.org/licenses/MIT" rel="nofollow"><img src="https://img.shields.io/github/license/nemphi/hanabicms" alt="License"></a>
 <a href="https://www.npmjs.com/package/hanabicms" rel="nofollow"><img src="https://img.shields.io/npm/dw/hanabicms.svg" alt="npm"></a>
 <a href="https://www.npmjs.com/package/hanabicms" rel="nofollow"><img src="https://img.shields.io/github/stars/hanabicms" alt="stars"></a>
 
