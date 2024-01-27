@@ -52,7 +52,7 @@ To do this simply clone the repo and deploy your worker.
 
 git clone github.com/nemphi/hanabicms
 cd hanabicms
-cp wrangler.example.toml wrangler.toml
+cp example.wrangler.toml wrangler.toml
 
 # edit wrangler.toml and add your bindings info
 
